@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pannello Admin — Prenotazioni</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="login-wrap">
+  <div class="container">
+    <div class="brand">
+      <h1>★ PANNELLO ADMIN ★</h1>
+      <p>Accesso riservato al personale</p>
+    </div>
+    <div class="card">
+      <h2>Accedi</h2>
+      <label>Username</label>
+      <input type="text" id="login-username" placeholder="admin" />
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="••••••••" />
+      <button id="btn-login">Accedi</button>
+      <div class="msg" id="login-msg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="container dashboard hidden" id="dashboard-wrap">
+  <div class="dash-header">
+    <div class="brand" style="text-align:left; margin:0;">
+      <h1 style="font-size:22px;">★ Dashboard Prenotazioni</h1>
+      <p style="margin-top:2px;"><span class="live-dot"></span>aggiornamento automatico ogni ~12 secondi</p>
+    </div>
+    <button class="secondary" style="width:auto; margin:0;" id="btn-logout-admin">Esci</button>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="num" id="stat-total">0</div>
+      <div class="label">Prenotazioni totali</div>
+    </div>
+    <div class="stat-card">
+      <div class="num" id="stat-today">0</div>
+      <div class="label">Prenotazioni oggi</div>
+    </div>
+    <div class="stat-card">
+      <div class="num" id="stat-people">0</div>
+      <div class="label">Persone (oggi)</div>
+    </div>
+    <div class="stat-card">
+      <div class="num" id="stat-upcoming">0</div>
+      <div class="label">Prossime 7 giorni</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Cliente</th>
+        <th>Email</th>
+        <th>Persone</th>
+        <th>Data</th>
+        <th>Ora</th>
+        <th>Stato</th>
+        <th>Creata il</th>
+      </tr>
+    </thead>
+    <tbody id="bookings-table-body">
+    </tbody>
+  </table>
+</div>
+
+<script src="js/admin.js"></script>
+</body>
+</html>

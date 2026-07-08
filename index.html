@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prenota il tuo Tavolo</title>
+<link rel="stylesheet" href="css/style.css" />
+
+<!-- ===== PWA: manifest, icone e theme color (necessari per PWABuilder / installazione su Android) ===== -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0f0f12" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+</head>
+<body>
+<div class="container">
+
+  <div class="brand">
+    <h1>★ IL TUO RISTORANTE ★</h1>
+    <p>Prenotazione tavolo online</p>
+  </div>
+
+  <div class="steps">
+    <div class="step-dot active" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+    <div class="step-dot" id="dot-3"></div>
+  </div>
+
+  <!-- STEP 1: Registrazione -->
+  <div class="card" id="step-register">
+    <h2>Chi sei?</h2>
+    <p class="subtitle">Inserisci i tuoi dati: ti invieremo un codice di verifica via email.</p>
+
+    <label>Nome e Cognome</label>
+    <input type="text" id="reg-name" placeholder="Mario Rossi" />
+
+    <label>Indirizzo Email</label>
+    <input type="email" id="reg-email" placeholder="mario.rossi@email.com" />
+
+    <button id="btn-send-code">Invia codice via Email</button>
+    <div class="msg" id="register-msg"></div>
+  </div>
+
+  <!-- STEP 2: Verifica OTP -->
+  <div class="card hidden" id="step-verify">
+    <h2>Verifica la tua email</h2>
+    <p class="subtitle">Abbiamo inviato un codice via email all'indirizzo indicato. Inseriscilo qui sotto.</p>
+
+    <label>Codice di verifica</label>
+    <input type="text" id="verify-code" placeholder="123456" maxlength="6" />
+
+    <button id="btn-verify-code">Verifica codice</button>
+    <button class="secondary" id="btn-back-register">← Cambia email</button>
+    <div class="msg" id="verify-msg"></div>
+  </div>
+
+  <!-- STEP FACOLTATIVO A: Numero di telefono (mostrato solo se il gestore ha attivato WhatsApp) -->
+  <div class="card hidden" id="step-phone">
+    <h2>Verifica anche il telefono <span style="font-weight:400; font-size:14px;">(facoltativo)</span></h2>
+    <p class="subtitle">Se vuoi, puoi verificare anche il tuo numero WhatsApp. Puoi anche saltare questo passaggio.</p>
+
+    <label>Numero WhatsApp (con prefisso internazionale)</label>
+    <input type="tel" id="reg-phone" placeholder="+393331234567" />
+
+    <button id="btn-send-phone-code">Invia codice via WhatsApp</button>
+    <button class="secondary" id="btn-skip-phone">Salta questo passaggio →</button>
+    <div class="msg" id="phone-msg"></div>
+  </div>
+
+  <!-- STEP FACOLTATIVO B: Verifica codice WhatsApp -->
+  <div class="card hidden" id="step-phone-verify">
+    <h2>Inserisci il codice WhatsApp</h2>
+    <p class="subtitle">Abbiamo inviato un codice via WhatsApp al numero indicato.</p>
+
+    <label>Codice di verifica</label>
+    <input type="text" id="phone-verify-code" placeholder="123456" maxlength="6" />
+
+    <button id="btn-verify-phone-code">Verifica codice</button>
+    <button class="secondary" id="btn-skip-phone-verify">Salta e continua →</button>
+    <div class="msg" id="phone-verify-msg"></div>
+  </div>
+
+  <!-- STEP 3: Prenotazione -->
+  <div class="card hidden" id="step-booking">
+    <div class="user-badge">
+      <span>Benvenuto/a, <span class="name" id="badge-name"></span></span>
+      <button class="link-btn" id="btn-logout">esci</button>
+    </div>
+
+    <h2>Prenota il tuo tavolo</h2>
+    <p class="subtitle">Indica numero di persone, data e orario desiderati.</p>
+
+    <label>Numero di persone</label>
+    <input type="number" id="book-people" min="1" max="30" placeholder="es. 4" />
+
+    <label>Data della prenotazione</label>
+    <input type="date" id="book-date" />
+
+    <label>Orario</label>
+    <input type="time" id="book-time" />
+
+    <button id="btn-book">Conferma prenotazione</button>
+    <div class="msg" id="booking-msg"></div>
+  </div>
+
+</div>
+
+<script src="js/main.js"></script>
+</body>
+</html>

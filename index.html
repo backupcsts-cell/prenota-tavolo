@@ -16,9 +16,12 @@
 <div class="container">
 
   <div class="brand">
-    <h1>★ IL TUO RISTORANTE ★</h1>
-    <p>Prenotazione tavolo online</p>
+    <img id="site-logo" class="site-logo hidden" alt="Logo attività" />
+    <h1 id="site-title">★ IL TUO RISTORANTE ★</h1>
+    <p id="site-tagline">Prenotazione tavolo online</p>
   </div>
+
+  <div class="welcome-banner hidden" id="welcome-banner"></div>
 
   <div class="steps">
     <div class="step-dot active" id="dot-1"></div>
@@ -95,6 +98,7 @@
 
     <label>Data della prenotazione</label>
     <input type="date" id="book-date" />
+    <div class="availability-box" id="book-availability"></div>
 
     <label>Orario</label>
     <input type="time" id="book-time" />

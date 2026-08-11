@@ -31,10 +31,31 @@
 <div class="container dashboard hidden" id="dashboard-wrap">
   <div class="dash-header">
     <div class="brand" style="text-align:left; margin:0;">
+      <img id="admin-logo" class="site-logo-admin hidden" alt="Logo attività" />
       <h1 style="font-size:22px;">★ Dashboard Prenotazioni</h1>
       <p style="margin-top:2px;"><span class="live-dot"></span>aggiornamento automatico ogni ~12 secondi</p>
     </div>
-    <button class="secondary" style="width:auto; margin:0;" id="btn-logout-admin">Esci</button>
+    <div class="dash-actions">
+      <button class="secondary" style="width:auto; margin:0;" id="btn-open-homepage">🎨 Home page</button>
+      <button class="secondary" style="width:auto; margin:0;" id="btn-open-settings">⚙ Impostazioni</button>
+      <button style="width:auto; margin:0;" id="btn-new-booking">+ Nuova prenotazione</button>
+      <button class="secondary" style="width:auto; margin:0;" id="btn-logout-admin">Esci</button>
+    </div>
+  </div>
+
+  <div class="card settings-summary" id="settings-summary">
+    <div class="settings-summary-item">
+      <span class="label">Capienza/giorno</span>
+      <span class="value" id="summary-capacity">—</span>
+    </div>
+    <div class="settings-summary-item">
+      <span class="label">Chiusura settimanale</span>
+      <span class="value" id="summary-weekday">—</span>
+    </div>
+    <div class="settings-summary-item">
+      <span class="label">Chiusure straordinarie</span>
+      <span class="value" id="summary-dates">—</span>
+    </div>
   </div>
 
   <div class="stats-grid">
@@ -66,11 +87,123 @@
         <th>Ora</th>
         <th>Stato</th>
         <th>Creata il</th>
+        <th>Azioni</th>
       </tr>
     </thead>
     <tbody id="bookings-table-body">
     </tbody>
   </table>
+</div>
+
+<!-- MODALE: IMPOSTAZIONI (capienza + chiusure) -->
+<div class="modal-overlay hidden" id="settings-modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Impostazioni prenotazioni</h2>
+      <button class="modal-close" id="btn-close-settings">✕</button>
+    </div>
+
+    <label>Numero massimo di posti per giorno</label>
+    <input type="number" id="set-capacity" min="0" placeholder="0 = nessun limite" />
+
+    <label>Giorno di chiusura settimanale fisso</label>
+    <select id="set-weekday">
+      <option value="-1">Nessuno (sempre aperto)</option>
+      <option value="1">Lunedì</option>
+      <option value="2">Martedì</option>
+      <option value="3">Mercoledì</option>
+      <option value="4">Giovedì</option>
+      <option value="5">Venerdì</option>
+      <option value="6">Sabato</option>
+      <option value="0">Domenica</option>
+    </select>
+
+    <label>Chiusure straordinarie / giorni alternativi di chiusura</label>
+    <div class="row">
+      <div><input type="date" id="set-new-closing-date" /></div>
+      <div style="flex:0 0 auto;"><button class="secondary" style="margin-top:0; width:auto; padding:12px 16px;" id="btn-add-closing-date">Aggiungi</button></div>
+    </div>
+    <div class="chip-list" id="closing-dates-list"></div>
+
+    <button id="btn-save-settings">Salva impostazioni</button>
+    <div class="msg" id="settings-msg"></div>
+  </div>
+</div>
+
+<!-- MODALE: NUOVA / MODIFICA PRENOTAZIONE -->
+<div class="modal-overlay hidden" id="booking-modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="booking-modal-title">Nuova prenotazione</h2>
+      <button class="modal-close" id="btn-close-booking-modal">✕</button>
+    </div>
+
+    <input type="hidden" id="bk-id" />
+
+    <label>Nome cliente</label>
+    <input type="text" id="bk-name" placeholder="Mario Rossi" />
+
+    <label>Email (facoltativa)</label>
+    <input type="email" id="bk-email" placeholder="mario.rossi@email.com" />
+
+    <div class="row">
+      <div>
+        <label>Persone</label>
+        <input type="number" id="bk-people" min="1" placeholder="es. 4" />
+      </div>
+      <div>
+        <label>Orario</label>
+        <input type="time" id="bk-time" />
+      </div>
+    </div>
+
+    <label>Data</label>
+    <input type="date" id="bk-date" />
+
+    <label>Stato</label>
+    <select id="bk-status">
+      <option value="Confermata">Confermata</option>
+      <option value="Annullata">Annullata</option>
+    </select>
+
+    <div class="availability-box" id="bk-availability"></div>
+
+    <button id="btn-save-booking">Salva prenotazione</button>
+    <button class="secondary" id="btn-cancel-booking-modal">Annulla</button>
+    <div class="msg" id="booking-modal-msg"></div>
+  </div>
+</div>
+
+<!-- MODALE: PERSONALIZZAZIONE HOME PAGE (logo, nome, tagline, benvenuto) -->
+<div class="modal-overlay hidden" id="homepage-modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Personalizza home page</h2>
+      <button class="modal-close" id="btn-close-homepage">✕</button>
+    </div>
+
+    <label>Logo dell'attività</label>
+    <div class="logo-upload-row">
+      <img class="logo-preview empty" id="hp-logo-preview" alt="Anteprima logo" />
+      <div style="flex:1;">
+        <input type="file" id="hp-logo-file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" />
+        <div class="hint-text">PNG, JPG, GIF, WEBP o SVG — consigliato sotto 200 KB</div>
+      </div>
+    </div>
+    <button class="secondary" id="btn-remove-logo" style="margin-top:12px;">Rimuovi logo attuale</button>
+
+    <label>Nome dell'attività</label>
+    <input type="text" id="hp-business-name" placeholder="Es. Ristorante Da Mario" maxlength="80" />
+
+    <label>Sottotitolo / slogan</label>
+    <input type="text" id="hp-tagline" placeholder="Es. Cucina tradizionale dal 1980" maxlength="120" />
+
+    <label>Messaggio di benvenuto (facoltativo, mostrato sopra il modulo)</label>
+    <textarea id="hp-welcome" maxlength="400" placeholder="Es. Aperti tutti i giorni tranne il lunedì. Vi aspettiamo!"></textarea>
+
+    <button id="btn-save-homepage">Salva personalizzazione</button>
+    <div class="msg" id="homepage-msg"></div>
+  </div>
 </div>
 
 <script src="js/admin.js"></script>

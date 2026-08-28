@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prenota-tavolo-v2';
+const CACHE_NAME = 'prenota-tavolo-v3';
 const ASSETS_TO_CACHE = [
   './index.html',
   './css/style.css',
@@ -29,6 +29,14 @@ self.addEventListener('activate', (event) => {
 // Le chiamate al backend (Google Apps Script, altro dominio) vanno sempre in
 // rete, mai in cache: qui basta controllare che l'host sia diverso da quello
 // della pagina, invece di cercare un percorso "/api/" che non esiste più.
+//
+// STRATEGIA: "network-first" (prima la rete, poi la cache). In precedenza era
+// "cache-first" e questo causava un problema serio: la primissima copia della
+// pagina salvata in cache veniva servita per SEMPRE, anche dopo aver
+// pubblicato aggiornamenti su GitHub Pages — l'utente restava bloccato su una
+// versione vecchia senza nessun modo semplice per accorgersene. Con
+// network-first, ogni apertura della pagina prende prima la versione più
+// recente online; la cache serve solo come riserva se manca la connessione.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
@@ -37,15 +45,12 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request).then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        }).catch(() => cached)
-      );
-    })
+    fetch(event.request)
+      .then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

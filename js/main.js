@@ -1,7 +1,7 @@
 // ==== CONFIGURAZIONE ====
 // Incolla qui l'URL del tuo Web App di Google Apps Script (termina con /exec).
 // Lo ottieni da: Apps Script → Distribuisci → Nuova implementazione → Applicazione web.
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxSUuWYciNxl1SZImevHVjGOqeWHnj3DPjG6Z5Nori0Exxqx9i0VC_m9OOzYELYEew/exec';
+const APPS_SCRIPT_URL = 'INCOLLA_QUI_URL_APPS_SCRIPT/exec';
 
 // Helper: chiama sempre la stessa Web App passando un'azione + dati nel corpo.
 // NOTA: usiamo 'text/plain' come Content-Type (non 'application/json') perché
@@ -57,7 +57,13 @@ async function checkConfig() {
 // Applica logo, nome attività, sottotitolo e messaggio di benvenuto impostati
 // dall'admin. Se un campo non è stato personalizzato, resta il testo di
 // default già presente nell'HTML.
+const VALID_THEMES = ['gold', 'sage', 'navy'];
+
 function applyHomepageCustomization(data) {
+  VALID_THEMES.forEach((t) => document.body.classList.remove('theme-' + t));
+  if (data.theme && data.theme !== 'gold' && VALID_THEMES.includes(data.theme)) {
+    document.body.classList.add('theme-' + data.theme);
+  }
   if (data.logoDataUrl) {
     const logo = document.getElementById('site-logo');
     logo.src = data.logoDataUrl;

@@ -1,6 +1,6 @@
 // ==== CONFIGURAZIONE ====
 // Stesso URL Apps Script usato in js/main.js (termina con /exec).
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxSUuWYciNxl1SZImevHVjGOqeWHnj3DPjG6Z5Nori0Exxqx9i0VC_m9OOzYELYEew/exec';
+const APPS_SCRIPT_URL = 'INCOLLA_QUI_URL_APPS_SCRIPT/exec';
 
 // Ogni quanti millisecondi ricontrollare le nuove prenotazioni.
 // Google Apps Script non supporta connessioni realtime (niente Socket.io),
@@ -77,6 +77,13 @@ document.getElementById('btn-logout-admin').addEventListener('click', () => {
 });
 
 // ==== DASHBOARD ====
+
+// Chiude tutti i pannelli modali aperti (impostazioni, prenotazione, home page).
+// Va richiamata prima di aprirne uno nuovo, per evitare che restino sovrapposti.
+function closeAllModals() {
+  document.querySelectorAll('.modal-overlay').forEach((el) => el.classList.add('hidden'));
+}
+
 let pollTimer = null;
 let knownIds = new Set();
 let lastBookings = [];
@@ -165,6 +172,7 @@ tbody.addEventListener('click', (e) => {
   if (!booking) return;
 
   if (btn.dataset.action === 'edit') {
+    closeAllModals();
     openBookingModal(booking);
   } else if (btn.dataset.action === 'delete') {
     deleteBooking(booking);
@@ -212,7 +220,7 @@ function updateStats(bookings) {
 // ============================================================================
 // IMPOSTAZIONI: capienza posti e giorni di chiusura
 // ============================================================================
-let currentSettings = { capacityPerDay: 0, closingWeekday: -1, closingDates: [] };
+let currentSettings = { capacityPerDay: 0, closingWeekday: -1, closingDates: [], whatsappEnabled: false, whatsappConfigured: false };
 
 const settingsOverlay = document.getElementById('settings-modal-overlay');
 const closingDatesList = document.getElementById('closing-dates-list');
@@ -238,6 +246,19 @@ function renderSettingsSummary() {
     currentSettings.closingDates.length > 0
       ? currentSettings.closingDates.map(formatDateIt).join(', ')
       : 'Nessuna';
+}
+
+function renderWhatsappHint() {
+  const hint = document.getElementById('whatsapp-config-hint');
+  if (currentSettings.whatsappEnabled && !currentSettings.whatsappConfigured) {
+    hint.textContent = '⚠ Attenzione: mancano ancora le credenziali WhatsApp (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN) nelle Proprietà dello script Apps Script. Vedi WHATSAPP-SETUP.md, altrimenti l\'invio dei codici fallirà.';
+    hint.style.color = 'var(--error)';
+  } else if (!currentSettings.whatsappConfigured) {
+    hint.textContent = 'Le credenziali Meta/WhatsApp non sono ancora configurate nelle Proprietà dello script (richiesto solo se attivi questa opzione). Vedi WHATSAPP-SETUP.md.';
+    hint.style.color = '';
+  } else {
+    hint.textContent = '';
+  }
 }
 
 function formatDateIt(iso) {
@@ -275,11 +296,18 @@ document.getElementById('btn-add-closing-date').addEventListener('click', () => 
 });
 
 document.getElementById('btn-open-settings').addEventListener('click', () => {
+  closeAllModals();
   document.getElementById('set-capacity').value = currentSettings.capacityPerDay || 0;
   document.getElementById('set-weekday').value = String(currentSettings.closingWeekday);
+  document.getElementById('set-whatsapp-enabled').checked = !!currentSettings.whatsappEnabled;
   renderClosingDatesChips();
+  renderWhatsappHint();
   clearMsg('settings-msg');
   settingsOverlay.classList.remove('hidden');
+});
+document.getElementById('set-whatsapp-enabled').addEventListener('change', (e) => {
+  currentSettings.whatsappEnabled = e.target.checked;
+  renderWhatsappHint();
 });
 document.getElementById('btn-close-settings').addEventListener('click', () => {
   settingsOverlay.classList.add('hidden');
@@ -293,6 +321,8 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
   const closingWeekday = Number(document.getElementById('set-weekday').value);
   const btn = document.getElementById('btn-save-settings');
 
+  const whatsappEnabled = document.getElementById('set-whatsapp-enabled').checked;
+
   btn.disabled = true;
   try {
     const data = await callApi('adminUpdateSettings', {
@@ -300,11 +330,13 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
       capacityPerDay,
       closingWeekday,
       closingDates: currentSettings.closingDates,
+      whatsappEnabled,
     });
     if (data.error) throw new Error(data.error);
 
     currentSettings = data.settings;
     renderSettingsSummary();
+    renderWhatsappHint();
     showMsg('settings-msg', 'Impostazioni salvate ✅', 'success');
   } catch (err) {
     showMsg('settings-msg', err.message, 'error');
@@ -342,7 +374,10 @@ function openBookingModal(booking) {
   checkModalAvailability();
 }
 
-document.getElementById('btn-new-booking').addEventListener('click', () => openBookingModal(null));
+document.getElementById('btn-new-booking').addEventListener('click', () => {
+  closeAllModals();
+  openBookingModal(null);
+});
 document.getElementById('btn-close-booking-modal').addEventListener('click', () => bookingOverlay.classList.add('hidden'));
 document.getElementById('btn-cancel-booking-modal').addEventListener('click', () => bookingOverlay.classList.add('hidden'));
 bookingOverlay.addEventListener('click', (e) => {
@@ -441,9 +476,33 @@ async function deleteBooking(booking) {
 const homepageOverlay = document.getElementById('homepage-modal-overlay');
 const MAX_LOGO_FILE_BYTES = 200 * 1024; // 200 KB grezzi, margine sotto il limite lato server
 
-let currentHomepage = { businessName: '', tagline: '', welcomeMessage: '', logoDataUrl: '' };
+let currentHomepage = { businessName: '', tagline: '', welcomeMessage: '', logoDataUrl: '', theme: 'gold' };
 let pendingLogoDataUrl = null; // nuovo logo selezionato ma non ancora salvato
 let pendingLogoRemoved = false; // true se l'utente ha chiesto di rimuovere il logo
+let pendingTheme = 'gold'; // tema colori selezionato nel modale (non ancora salvato)
+
+const VALID_THEMES = ['gold', 'sage', 'navy'];
+
+// Applica subito il tema scelto a tutta la pagina admin (anteprima live),
+// aggiungendo/rimuovendo la classe "theme-XXX" sul <body>.
+function applyTheme(theme) {
+  VALID_THEMES.forEach((t) => document.body.classList.remove('theme-' + t));
+  if (theme && theme !== 'gold') document.body.classList.add('theme-' + theme);
+}
+
+function setThemePicker(theme) {
+  pendingTheme = VALID_THEMES.includes(theme) ? theme : 'gold';
+  document.querySelectorAll('#theme-picker .theme-swatch').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.theme === pendingTheme);
+  });
+}
+
+document.getElementById('theme-picker').addEventListener('click', (e) => {
+  const btn = e.target.closest('.theme-swatch');
+  if (!btn) return;
+  setThemePicker(btn.dataset.theme);
+  applyTheme(pendingTheme); // anteprima immediata, prima ancora di salvare
+});
 
 async function loadHomepage() {
   try {
@@ -451,6 +510,7 @@ async function loadHomepage() {
     if (data.error) throw new Error(data.error);
     currentHomepage = data.homepage;
     renderAdminLogo();
+    applyTheme(currentHomepage.theme || 'gold');
   } catch (err) {
     console.error('Errore caricamento home page:', err.message);
     handleAuthError(err);
@@ -481,6 +541,7 @@ function setLogoPreview(src) {
 }
 
 document.getElementById('btn-open-homepage').addEventListener('click', () => {
+  closeAllModals();
   document.getElementById('hp-business-name').value = currentHomepage.businessName || '';
   document.getElementById('hp-tagline').value = currentHomepage.tagline || '';
   document.getElementById('hp-welcome').value = currentHomepage.welcomeMessage || '';
@@ -488,12 +549,17 @@ document.getElementById('btn-open-homepage').addEventListener('click', () => {
   pendingLogoDataUrl = null;
   pendingLogoRemoved = false;
   setLogoPreview(currentHomepage.logoDataUrl || '');
+  setThemePicker(currentHomepage.theme || 'gold');
   clearMsg('homepage-msg');
   homepageOverlay.classList.remove('hidden');
 });
-document.getElementById('btn-close-homepage').addEventListener('click', () => homepageOverlay.classList.add('hidden'));
+function closeHomepageModalWithoutSaving() {
+  homepageOverlay.classList.add('hidden');
+  applyTheme(currentHomepage.theme || 'gold'); // annulla l'anteprima non salvata
+}
+document.getElementById('btn-close-homepage').addEventListener('click', closeHomepageModalWithoutSaving);
 homepageOverlay.addEventListener('click', (e) => {
-  if (e.target === homepageOverlay) homepageOverlay.classList.add('hidden');
+  if (e.target === homepageOverlay) closeHomepageModalWithoutSaving();
 });
 
 document.getElementById('hp-logo-file').addEventListener('change', (e) => {
@@ -541,7 +607,7 @@ document.getElementById('btn-save-homepage').addEventListener('click', async () 
       if (res.error) throw new Error(res.error);
     }
 
-    const res2 = await callApi('adminUpdateHomepage', { token: getAdminToken(), businessName, tagline, welcomeMessage });
+    const res2 = await callApi('adminUpdateHomepage', { token: getAdminToken(), businessName, tagline, welcomeMessage, theme: pendingTheme });
     if (res2.error) throw new Error(res2.error);
 
     pendingLogoDataUrl = null;

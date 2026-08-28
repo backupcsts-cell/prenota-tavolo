@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Pannello Admin — Prenotazioni</title>
-<link rel="stylesheet" href="css/style.css?v=3" />
+<link rel="stylesheet" href="css/style.css?v=4" />
 </head>
 <body>
 
@@ -125,6 +125,12 @@
     </div>
     <div class="chip-list" id="closing-dates-list"></div>
 
+    <label class="switch-row" style="margin-top:20px;">
+      <input type="checkbox" id="set-whatsapp-enabled" />
+      <span>Attiva verifica telefono via WhatsApp (in aggiunta all'email, sempre obbligatoria)</span>
+    </label>
+    <div class="hint-text" id="whatsapp-config-hint"></div>
+
     <button id="btn-save-settings">Salva impostazioni</button>
     <div class="msg" id="settings-msg"></div>
   </div>
@@ -201,11 +207,27 @@
     <label>Messaggio di benvenuto (facoltativo, mostrato sopra il modulo)</label>
     <textarea id="hp-welcome" maxlength="400" placeholder="Es. Aperti tutti i giorni tranne il lunedì. Vi aspettiamo!"></textarea>
 
+    <label>Tema colori</label>
+    <div class="theme-picker" id="theme-picker">
+      <button type="button" class="theme-swatch" data-theme="gold">
+        <span class="theme-dots"><i style="background:#0f0f12"></i><i style="background:#d4af37"></i></span>
+        Nero &amp; Oro
+      </button>
+      <button type="button" class="theme-swatch" data-theme="sage">
+        <span class="theme-dots"><i style="background:#0e1410"></i><i style="background:#8db99a"></i></span>
+        Verde salvia
+      </button>
+      <button type="button" class="theme-swatch" data-theme="navy">
+        <span class="theme-dots"><i style="background:#0b0f1a"></i><i style="background:#86a3e0"></i></span>
+        Blu notte
+      </button>
+    </div>
+
     <button id="btn-save-homepage">Salva personalizzazione</button>
     <div class="msg" id="homepage-msg"></div>
   </div>
 </div>
 
-<script src="js/admin.js?v=3"></script>
+<script src="js/admin.js?v=4"></script>
 </body>
 </html>

@@ -38,6 +38,8 @@ let pendingName = '';
 let pendingEmail = '';
 let pendingPhone = '';
 let phoneVerificationEnabled = false; // aggiornato da checkConfig() all'avvio
+let bookingBlocked = false; // true se la data scelta è chiusa o senza posti disponibili
+let availabilityCheckToken = 0;
 
 // Chiede al backend se la verifica telefono via WhatsApp è attiva in questo momento.
 // Spenta di default: se il gestore non l'ha ancora configurata, questo step
@@ -46,8 +48,32 @@ async function checkConfig() {
   try {
     const data = await callApi('getConfig', {});
     phoneVerificationEnabled = !!data.phoneVerificationEnabled;
+    applyHomepageCustomization(data);
   } catch (err) {
     phoneVerificationEnabled = false;
+  }
+}
+
+// Applica logo, nome attività, sottotitolo e messaggio di benvenuto impostati
+// dall'admin. Se un campo non è stato personalizzato, resta il testo di
+// default già presente nell'HTML.
+function applyHomepageCustomization(data) {
+  if (data.logoDataUrl) {
+    const logo = document.getElementById('site-logo');
+    logo.src = data.logoDataUrl;
+    logo.classList.remove('hidden');
+  }
+  if (data.businessName) {
+    document.getElementById('site-title').textContent = `★ ${data.businessName} ★`;
+    document.title = data.businessName;
+  }
+  if (data.tagline) {
+    document.getElementById('site-tagline').textContent = data.tagline;
+  }
+  if (data.welcomeMessage) {
+    const banner = document.getElementById('welcome-banner');
+    banner.textContent = data.welcomeMessage;
+    banner.classList.remove('hidden');
   }
 }
 
@@ -214,6 +240,56 @@ document.getElementById('btn-skip-phone-verify').addEventListener('click', () =>
 });
 
 // ==== STEP 3: prenotazione ====
+
+// Ad ogni cambio data, controlliamo subito col backend se il locale è chiuso
+// quel giorno o se i posti sono esauriti, per non far scoprire il problema
+// al cliente solo dopo aver compilato tutto il resto del modulo.
+document.getElementById('book-date').addEventListener('change', checkBookingAvailability);
+
+async function checkBookingAvailability() {
+  const dateVal = document.getElementById('book-date').value;
+  const box = document.getElementById('book-availability');
+  bookingBlocked = false;
+
+  if (!dateVal) {
+    box.className = 'availability-box';
+    return;
+  }
+
+  const [year, month, day] = dateVal.split('-');
+  const myToken = ++availabilityCheckToken;
+
+  box.className = 'availability-box show';
+  box.textContent = 'Controllo disponibilità…';
+
+  try {
+    const data = await callApi('checkAvailability', { day, month, year });
+    if (myToken !== availabilityCheckToken) return; // risposta obsoleta, ignora
+    if (data.error) throw new Error(data.error);
+
+    const a = data.availability;
+    if (a.closed) {
+      bookingBlocked = true;
+      box.className = 'availability-box show blocked';
+      box.textContent = `⛔ Siamo spiacenti, il locale è chiuso in questa data${a.closedReason ? ' (' + a.closedReason + ')' : ''}. Scegli un altro giorno.`;
+    } else if (a.remaining === 0) {
+      bookingBlocked = true;
+      box.className = 'availability-box show blocked';
+      box.textContent = '⛔ Posti esauriti per questa data. Scegli un altro giorno o un altro orario.';
+    } else if (a.remaining !== null) {
+      box.className = 'availability-box show ok';
+      box.textContent = `✅ Disponibile — posti residui: ${a.remaining}`;
+    } else {
+      box.className = 'availability-box show ok';
+      box.textContent = '✅ Data disponibile';
+    }
+  } catch (err) {
+    // Se il controllo fallisce non blocchiamo il cliente: sarà comunque il
+    // backend a rifiutare la prenotazione al momento dell'invio, se necessario.
+    box.className = 'availability-box';
+  }
+}
+
 document.getElementById('btn-book').addEventListener('click', async () => {
   const people = document.getElementById('book-people').value;
   const dateVal = document.getElementById('book-date').value; // formato YYYY-MM-DD
@@ -223,6 +299,9 @@ document.getElementById('btn-book').addEventListener('click', async () => {
 
   if (!people || !dateVal || !time) {
     return showMsg('booking-msg', 'Compila tutti i campi', 'error');
+  }
+  if (bookingBlocked) {
+    return showMsg('booking-msg', 'Non è possibile prenotare in questa data: chiusura o posti esauriti', 'error');
   }
 
   const [year, month, day] = dateVal.split('-');
@@ -236,6 +315,8 @@ document.getElementById('btn-book').addEventListener('click', async () => {
     document.getElementById('book-people').value = '';
     document.getElementById('book-date').value = '';
     document.getElementById('book-time').value = '';
+    document.getElementById('book-availability').className = 'availability-box';
+    bookingBlocked = false;
   } catch (err) {
     showMsg('booking-msg', err.message, 'error');
   } finally {

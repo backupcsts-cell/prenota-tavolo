@@ -1,6 +1,6 @@
 // ==== CONFIGURAZIONE ====
 // Stesso URL Apps Script usato in js/main.js (termina con /exec).
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydJ2IvB_rR9tV12kjgPzBCmTYoMLPFAzaqRNZwPMD1vSFdZ3iGsWNMm9kFoXbeDAbV/exec';
+const APPS_SCRIPT_URL = 'INCOLLA_QUI_URL_APPS_SCRIPT/exec';
 
 // Ogni quanti millisecondi ricontrollare le nuove prenotazioni.
 // Google Apps Script non supporta connessioni realtime (niente Socket.io),
@@ -185,27 +185,42 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Zero-padding a 2 cifre: necessario perché Giorno/Mese arrivano dal foglio
+// già paddati come stringa (es. "05", dal formato input date "YYYY-MM-DD"),
+// mentre i metodi nativi di Date (getDate/getMonth) restituiscono numeri NON
+// paddati (es. 5). Senza normalizzare entrambi allo stesso modo, il confronto
+// stringa-con-stringa fallisce sempre per i giorni/mesi da 1 a 9.
+function pad2Stat_(n) {
+  return String(n).padStart(2, '0');
+}
+
 function updateStats(bookings) {
   const active = bookings.filter((b) => (b.Stato || 'Confermata') !== 'Annullata');
 
   const today = new Date();
-  const todayStr = `${today.getDate()}-${today.getMonth() + 1}-${today.getFullYear()}`;
+  const todayStr = `${pad2Stat_(today.getDate())}-${pad2Stat_(today.getMonth() + 1)}-${today.getFullYear()}`;
 
   let todayCount = 0;
   let todayPeople = 0;
   let upcoming = 0;
 
+  // "now" azzerato a mezzanotte: così una prenotazione di oggi (anche se
+  // l'orario prenotato è già passato rispetto all'ora corrente) resta
+  // conteggiata correttamente sia in "oggi" sia come "prossimi 7 giorni".
   const now = new Date();
-  const in7days = new Date();
+  now.setHours(0, 0, 0, 0);
+  const in7days = new Date(now);
   in7days.setDate(now.getDate() + 7);
 
   active.forEach((b) => {
-    const bStr = `${b.Giorno}-${b.Mese}-${b.Anno}`;
+    const giorno = pad2Stat_(b.Giorno);
+    const mese = pad2Stat_(b.Mese);
+    const bStr = `${giorno}-${mese}-${b.Anno}`;
     if (bStr === todayStr) {
       todayCount++;
       todayPeople += Number(b.NumeroPersone) || 0;
     }
-    const bookingDate = new Date(`${b.Anno}-${b.Mese}-${b.Giorno}`);
+    const bookingDate = new Date(`${b.Anno}-${mese}-${giorno}`);
     if (bookingDate >= now && bookingDate <= in7days) {
       upcoming++;
     }
@@ -220,7 +235,11 @@ function updateStats(bookings) {
 // ============================================================================
 // IMPOSTAZIONI: capienza posti e giorni di chiusura
 // ============================================================================
-let currentSettings = { capacityPerDay: 0, closingWeekday: -1, closingDates: [], whatsappEnabled: false, whatsappConfigured: false };
+let currentSettings = {
+  capacityLunch: 0, capacityDinner: 0, shiftCutoff: '16:00', closingWeekday: -1, closingDates: [],
+  whatsappEnabled: false, whatsappConfigured: false, whatsappPhoneNumberId: '', whatsappTemplateName: 'otp_verifica',
+  whatsappTemplateLang: 'it', whatsappAccessTokenSet: false,
+};
 
 const settingsOverlay = document.getElementById('settings-modal-overlay');
 const closingDatesList = document.getElementById('closing-dates-list');
@@ -238,8 +257,10 @@ async function loadSettings() {
 }
 
 function renderSettingsSummary() {
-  document.getElementById('summary-capacity').textContent =
-    currentSettings.capacityPerDay > 0 ? `${currentSettings.capacityPerDay} posti` : 'Nessun limite';
+  document.getElementById('summary-capacity-lunch').textContent =
+    currentSettings.capacityLunch > 0 ? `${currentSettings.capacityLunch} posti` : 'Nessun limite';
+  document.getElementById('summary-capacity-dinner').textContent =
+    currentSettings.capacityDinner > 0 ? `${currentSettings.capacityDinner} posti` : 'Nessun limite';
   document.getElementById('summary-weekday').textContent =
     currentSettings.closingWeekday >= 0 ? WEEKDAY_NAMES[currentSettings.closingWeekday] : 'Nessuna';
   document.getElementById('summary-dates').textContent =
@@ -251,14 +272,19 @@ function renderSettingsSummary() {
 function renderWhatsappHint() {
   const hint = document.getElementById('whatsapp-config-hint');
   if (currentSettings.whatsappEnabled && !currentSettings.whatsappConfigured) {
-    hint.textContent = '⚠ Attenzione: mancano ancora le credenziali WhatsApp (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN) nelle Proprietà dello script Apps Script. Vedi WHATSAPP-SETUP.md, altrimenti l\'invio dei codici fallirà.';
+    hint.textContent = '⚠ Attenzione: mancano ancora Phone Number ID e/o Token di accesso qui sotto, altrimenti l\'invio dei codici fallirà.';
     hint.style.color = 'var(--error)';
   } else if (!currentSettings.whatsappConfigured) {
-    hint.textContent = 'Le credenziali Meta/WhatsApp non sono ancora configurate nelle Proprietà dello script (richiesto solo se attivi questa opzione). Vedi WHATSAPP-SETUP.md.';
+    hint.textContent = 'Compila i campi qui sotto con le credenziali Meta/WhatsApp (richiesto solo se attivi questa opzione). Guida: WHATSAPP-SETUP.md.';
     hint.style.color = '';
   } else {
     hint.textContent = '';
   }
+
+  const tokenStatus = document.getElementById('whatsapp-token-status');
+  tokenStatus.textContent = currentSettings.whatsappAccessTokenSet
+    ? '🔒 Token già salvato — lascia il campo vuoto per non modificarlo, oppure incollane uno nuovo per sostituirlo.'
+    : 'Nessun token salvato finora.';
 }
 
 function formatDateIt(iso) {
@@ -297,9 +323,15 @@ document.getElementById('btn-add-closing-date').addEventListener('click', () => 
 
 document.getElementById('btn-open-settings').addEventListener('click', () => {
   closeAllModals();
-  document.getElementById('set-capacity').value = currentSettings.capacityPerDay || 0;
+  document.getElementById('set-capacity-lunch').value = currentSettings.capacityLunch || 0;
+  document.getElementById('set-capacity-dinner').value = currentSettings.capacityDinner || 0;
+  document.getElementById('set-shift-cutoff').value = currentSettings.shiftCutoff || '16:00';
   document.getElementById('set-weekday').value = String(currentSettings.closingWeekday);
   document.getElementById('set-whatsapp-enabled').checked = !!currentSettings.whatsappEnabled;
+  document.getElementById('set-whatsapp-phone-id').value = currentSettings.whatsappPhoneNumberId || '';
+  document.getElementById('set-whatsapp-token').value = ''; // il token non viene mai rimandato dal server, per sicurezza
+  document.getElementById('set-whatsapp-template-name').value = currentSettings.whatsappTemplateName || 'otp_verifica';
+  document.getElementById('set-whatsapp-template-lang').value = currentSettings.whatsappTemplateLang || 'it';
   renderClosingDatesChips();
   renderWhatsappHint();
   clearMsg('settings-msg');
@@ -317,24 +349,37 @@ settingsOverlay.addEventListener('click', (e) => {
 });
 
 document.getElementById('btn-save-settings').addEventListener('click', async () => {
-  const capacityPerDay = Number(document.getElementById('set-capacity').value || 0);
+  const capacityLunch = Number(document.getElementById('set-capacity-lunch').value || 0);
+  const capacityDinner = Number(document.getElementById('set-capacity-dinner').value || 0);
+  const shiftCutoff = document.getElementById('set-shift-cutoff').value || '16:00';
   const closingWeekday = Number(document.getElementById('set-weekday').value);
   const btn = document.getElementById('btn-save-settings');
 
   const whatsappEnabled = document.getElementById('set-whatsapp-enabled').checked;
+  const whatsappPhoneNumberId = document.getElementById('set-whatsapp-phone-id').value.trim();
+  const whatsappAccessToken = document.getElementById('set-whatsapp-token').value.trim(); // vuoto = non toccare il token salvato
+  const whatsappTemplateName = document.getElementById('set-whatsapp-template-name').value.trim();
+  const whatsappTemplateLang = document.getElementById('set-whatsapp-template-lang').value.trim();
 
   btn.disabled = true;
   try {
     const data = await callApi('adminUpdateSettings', {
       token: getAdminToken(),
-      capacityPerDay,
+      capacityLunch,
+      capacityDinner,
+      shiftCutoff,
       closingWeekday,
       closingDates: currentSettings.closingDates,
       whatsappEnabled,
+      whatsappPhoneNumberId,
+      whatsappAccessToken,
+      whatsappTemplateName,
+      whatsappTemplateLang,
     });
     if (data.error) throw new Error(data.error);
 
     currentSettings = data.settings;
+    document.getElementById('set-whatsapp-token').value = ''; // ripulisce il campo dopo il salvataggio
     renderSettingsSummary();
     renderWhatsappHint();
     showMsg('settings-msg', 'Impostazioni salvate ✅', 'success');
@@ -385,23 +430,26 @@ bookingOverlay.addEventListener('click', (e) => {
 });
 
 document.getElementById('bk-date').addEventListener('change', checkModalAvailability);
+document.getElementById('bk-time').addEventListener('change', checkModalAvailability);
 
 async function checkModalAvailability() {
   const dateVal = document.getElementById('bk-date').value;
+  const timeVal = document.getElementById('bk-time').value;
   const box = document.getElementById('bk-availability');
-  if (!dateVal) {
+  if (!dateVal || !timeVal) {
     box.className = 'availability-box';
     return;
   }
 
   const [year, month, day] = dateVal.split('-');
+  const editingId = document.getElementById('bk-id').value || undefined; // esclude sé stessa se in modifica
   const myToken = ++availabilityCheckToken;
 
   box.className = 'availability-box show';
   box.textContent = 'Controllo disponibilità…';
 
   try {
-    const data = await callApi('checkAvailability', { day, month, year });
+    const data = await callApi('checkAvailability', { day, month, year, time: timeVal, excludeId: editingId });
     if (myToken !== availabilityCheckToken) return; // risposta obsoleta, ignora
     if (data.error) throw new Error(data.error);
 
@@ -411,13 +459,13 @@ async function checkModalAvailability() {
       box.textContent = `⛔ Chiuso in questa data${a.closedReason ? ' — ' + a.closedReason : ''}`;
     } else if (a.remaining === null) {
       box.className = 'availability-box show ok';
-      box.textContent = `✅ Aperto — nessun limite di posti impostato (già prenotati: ${a.booked})`;
+      box.textContent = `✅ Turno ${a.shift} — nessun limite di posti impostato (già prenotati: ${a.booked})`;
     } else if (a.remaining === 0) {
       box.className = 'availability-box show blocked';
-      box.textContent = `⛔ Posti esauriti (${a.booked}/${a.capacity} occupati)`;
+      box.textContent = `⛔ Turno ${a.shift}: posti esauriti (${a.booked}/${a.capacity} occupati)`;
     } else {
       box.className = 'availability-box show ok';
-      box.textContent = `✅ Aperto — posti residui: ${a.remaining} su ${a.capacity} (prenotati: ${a.booked})`;
+      box.textContent = `✅ Turno ${a.shift} — posti residui: ${a.remaining} su ${a.capacity} (prenotati: ${a.booked})`;
     }
   } catch (err) {
     box.className = 'availability-box show warn';

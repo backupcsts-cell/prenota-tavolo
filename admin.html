@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Pannello Admin — Prenotazioni</title>
-<link rel="stylesheet" href="css/style.css?v=5" />
+<link rel="stylesheet" href="css/style.css?v=9" />
 </head>
 <body>
 
@@ -45,8 +45,12 @@
 
   <div class="card settings-summary" id="settings-summary">
     <div class="settings-summary-item">
-      <span class="label">Capienza/giorno</span>
-      <span class="value" id="summary-capacity">—</span>
+      <span class="label">Capienza pranzo</span>
+      <span class="value" id="summary-capacity-lunch">—</span>
+    </div>
+    <div class="settings-summary-item">
+      <span class="label">Capienza cena</span>
+      <span class="value" id="summary-capacity-dinner">—</span>
     </div>
     <div class="settings-summary-item">
       <span class="label">Chiusura settimanale</span>
@@ -103,8 +107,15 @@
       <button class="modal-close" id="btn-close-settings">✕</button>
     </div>
 
-    <label>Numero massimo di posti per giorno</label>
-    <input type="number" id="set-capacity" min="0" placeholder="0 = nessun limite" />
+    <label>Numero massimo di posti a pranzo</label>
+    <input type="number" id="set-capacity-lunch" min="0" placeholder="0 = nessun limite" />
+
+    <label>Numero massimo di posti a cena</label>
+    <input type="number" id="set-capacity-dinner" min="0" placeholder="0 = nessun limite" />
+
+    <label>Orario di confine tra pranzo e cena</label>
+    <input type="time" id="set-shift-cutoff" />
+    <div class="hint-text">Le prenotazioni prima di quest'ora contano come "pranzo", da quest'ora in poi come "cena".</div>
 
     <label>Giorno di chiusura settimanale fisso</label>
     <select id="set-weekday">
@@ -130,6 +141,27 @@
       <span>Attiva verifica telefono via WhatsApp (in aggiunta all'email, sempre obbligatoria)</span>
     </label>
     <div class="hint-text" id="whatsapp-config-hint"></div>
+
+    <div id="whatsapp-fields" class="whatsapp-fields">
+      <label>Phone number ID (da Meta for Developers → WhatsApp → API Setup)</label>
+      <input type="text" id="set-whatsapp-phone-id" placeholder="es. 109876543210987" />
+
+      <label>Token di accesso permanente</label>
+      <input type="password" id="set-whatsapp-token" placeholder="Lascia vuoto per non modificare il token già salvato" autocomplete="new-password" />
+      <div class="hint-text" id="whatsapp-token-status"></div>
+
+      <div class="row">
+        <div>
+          <label>Nome template messaggio</label>
+          <input type="text" id="set-whatsapp-template-name" placeholder="otp_verifica" />
+        </div>
+        <div>
+          <label>Lingua template</label>
+          <input type="text" id="set-whatsapp-template-lang" placeholder="it" />
+        </div>
+      </div>
+      <div class="hint-text">Guida passo-passo per ottenere questi valori: vedi il file WHATSAPP-SETUP.md incluso nel pacchetto del sito.</div>
+    </div>
 
     <button id="btn-save-settings">Salva impostazioni</button>
     <div class="msg" id="settings-msg"></div>
@@ -228,6 +260,6 @@
   </div>
 </div>
 
-<script src="js/admin.js?v=5"></script>
+<script src="js/admin.js?v=9"></script>
 </body>
 </html>

@@ -4,6 +4,7 @@
   --bg-card-hover: #202027;
   --gold: #d4af37;
   --gold-soft: #f0d789;
+  --gold-dark: #b8912b;
   --gold-rgb: 212, 175, 55;
   --text: #f5f3ee;
   --text-muted: #a3a0a0;
@@ -27,6 +28,7 @@ body.theme-sage {
   --bg-card-hover: #1d2921;
   --gold: #8db99a;
   --gold-soft: #b7d9c1;
+  --gold-dark: #6b9a7a;
   --gold-rgb: 141, 185, 154;
   --text: #eef3ef;
   --text-muted: #9db3a4;
@@ -39,6 +41,7 @@ body.theme-navy {
   --bg-card-hover: #182238;
   --gold: #86a3e0;
   --gold-soft: #b1c4ee;
+  --gold-dark: #5c7dc4;
   --gold-rgb: 134, 163, 224;
   --text: #eef1fb;
   --text-muted: #96a3c4;
@@ -120,7 +123,7 @@ input, select, textarea {
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #0f0f12;
+  background: var(--bg);
   color: var(--text);
   font-size: 15px;
   outline: none;
@@ -144,7 +147,7 @@ button {
   padding: 13px;
   border-radius: 10px;
   border: none;
-  background: linear-gradient(135deg, var(--gold), #b8912b);
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
   color: #131313;
   font-weight: 700;
   font-size: 15px;
@@ -473,6 +476,14 @@ tbody tr.new-row { animation: highlight 1.8s ease; }
   display: block;
   width: 12px;
   height: 20px;
+}
+
+.whatsapp-fields {
+  margin-top: 14px;
+  padding: 14px 16px 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(var(--gold-rgb), 0.04);
 }
 
 .availability-box {

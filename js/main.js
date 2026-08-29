@@ -1,7 +1,7 @@
 // ==== CONFIGURAZIONE ====
 // Incolla qui l'URL del tuo Web App di Google Apps Script (termina con /exec).
 // Lo ottieni da: Apps Script → Distribuisci → Nuova implementazione → Applicazione web.
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbydJ2IvB_rR9tV12kjgPzBCmTYoMLPFAzaqRNZwPMD1vSFdZ3iGsWNMm9kFoXbeDAbV/exec';
+const APPS_SCRIPT_URL = 'INCOLLA_QUI_URL_APPS_SCRIPT/exec';
 
 // Helper: chiama sempre la stessa Web App passando un'azione + dati nel corpo.
 // NOTA: usiamo 'text/plain' come Content-Type (non 'application/json') perché
@@ -126,6 +126,13 @@ function clearSession() {
 // Se l'utente ha già un token valido, salta direttamente allo step prenotazione
 (async function init() {
   await checkConfig();
+
+  // Impedisce di selezionare dal calendario una data già passata (il
+  // controllo server-side in actionBook_ resta comunque la vera protezione,
+  // questo è solo un aiuto per non far scoprire l'errore solo dopo l'invio).
+  const todayIso = new Date().toLocaleDateString('sv-SE'); // formato "YYYY-MM-DD" affidabile in fuso locale
+  document.getElementById('book-date').setAttribute('min', todayIso);
+
   const session = getSession();
   if (session.token) {
     document.getElementById('badge-name').textContent = session.name;
@@ -251,9 +258,11 @@ document.getElementById('btn-skip-phone-verify').addEventListener('click', () =>
 // quel giorno o se i posti sono esauriti, per non far scoprire il problema
 // al cliente solo dopo aver compilato tutto il resto del modulo.
 document.getElementById('book-date').addEventListener('change', checkBookingAvailability);
+document.getElementById('book-time').addEventListener('change', checkBookingAvailability);
 
 async function checkBookingAvailability() {
   const dateVal = document.getElementById('book-date').value;
+  const timeVal = document.getElementById('book-time').value;
   const box = document.getElementById('book-availability');
   bookingBlocked = false;
 
@@ -269,7 +278,9 @@ async function checkBookingAvailability() {
   box.textContent = 'Controllo disponibilità…';
 
   try {
-    const data = await callApi('checkAvailability', { day, month, year });
+    const params = { day, month, year };
+    if (timeVal) params.time = timeVal;
+    const data = await callApi('checkAvailability', params);
     if (myToken !== availabilityCheckToken) return; // risposta obsoleta, ignora
     if (data.error) throw new Error(data.error);
 
@@ -278,16 +289,29 @@ async function checkBookingAvailability() {
       bookingBlocked = true;
       box.className = 'availability-box show blocked';
       box.textContent = `⛔ Siamo spiacenti, il locale è chiuso in questa data${a.closedReason ? ' (' + a.closedReason + ')' : ''}. Scegli un altro giorno.`;
-    } else if (a.remaining === 0) {
+      return;
+    }
+
+    if (!timeVal) {
+      // Solo data scelta, non ancora l'orario: mostra il riepilogo di entrambi i turni.
+      const { pranzo, cena } = a.byShift;
+      const fmt = (s) => (s.remaining === null ? 'nessun limite' : s.remaining === 0 ? 'esaurito' : `${s.remaining} posti`);
+      box.className = 'availability-box show ok';
+      box.textContent = `🍽️ Pranzo: ${fmt(pranzo)} · Cena: ${fmt(cena)} — scegli anche l'orario per il dettaglio preciso`;
+      return;
+    }
+
+    // Data + orario scelti: disponibilità precisa del turno giusto.
+    if (a.remaining === 0) {
       bookingBlocked = true;
       box.className = 'availability-box show blocked';
-      box.textContent = '⛔ Posti esauriti per questa data. Scegli un altro giorno o un altro orario.';
+      box.textContent = `⛔ Posti esauriti per il turno ${a.shift} in questa data. Scegli un altro giorno o un altro orario.`;
     } else if (a.remaining !== null) {
       box.className = 'availability-box show ok';
-      box.textContent = `✅ Disponibile — posti residui: ${a.remaining}`;
+      box.textContent = `✅ Turno ${a.shift} disponibile — posti residui: ${a.remaining}`;
     } else {
       box.className = 'availability-box show ok';
-      box.textContent = '✅ Data disponibile';
+      box.textContent = `✅ Turno ${a.shift} disponibile`;
     }
   } catch (err) {
     // Se il controllo fallisce non blocchiamo il cliente: sarà comunque il

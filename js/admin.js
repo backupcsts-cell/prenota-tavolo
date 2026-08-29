@@ -1,6 +1,6 @@
 // ==== CONFIGURAZIONE ====
 // Stesso URL Apps Script usato in js/main.js (termina con /exec).
-const APPS_SCRIPT_URL = 'INCOLLA_QUI_URL_APPS_SCRIPT/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxF550d3jm3IH7ENWp9zSYNVPBbH4dEutX5PWy8y3IAmInwvW1FRASIaFHBUgFHQdfF/exec';
 
 // Ogni quanti millisecondi ricontrollare le nuove prenotazioni.
 // Google Apps Script non supporta connessioni realtime (niente Socket.io),

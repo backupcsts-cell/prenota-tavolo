@@ -1,7 +1,7 @@
 // ==== CONFIGURAZIONE ====
 // Incolla qui l'URL del tuo Web App di Google Apps Script (termina con /exec).
 // Lo ottieni da: Apps Script → Distribuisci → Nuova implementazione → Applicazione web.
-const APPS_SCRIPT_URL = 'INCOLLA_QUI_URL_APPS_SCRIPT/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxF550d3jm3IH7ENWp9zSYNVPBbH4dEutX5PWy8y3IAmInwvW1FRASIaFHBUgFHQdfF/exec';
 
 // Helper: chiama sempre la stessa Web App passando un'azione + dati nel corpo.
 // NOTA: usiamo 'text/plain' come Content-Type (non 'application/json') perché

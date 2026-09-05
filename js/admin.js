@@ -1,6 +1,6 @@
 // ==== CONFIGURAZIONE ====
 // Stesso URL Apps Script usato in js/main.js (termina con /exec).
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxF550d3jm3IH7ENWp9zSYNVPBbH4dEutX5PWy8y3IAmInwvW1FRASIaFHBUgFHQdfF/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwds58S_ptrk9V6RxY_isb1j29qQZHKvt9H9S-tOctgNe5FgOhPpbbV31MH9FlCb7Xw/exec';
 
 // Ogni quanti millisecondi ricontrollare le nuove prenotazioni.
 // Google Apps Script non supporta connessioni realtime (niente Socket.io),
@@ -87,6 +87,23 @@ function closeAllModals() {
 let pollTimer = null;
 let knownIds = new Set();
 let lastBookings = [];
+let tableSearchTerm = ''; // filtro live sulla tabella, applicato lato client senza richieste aggiuntive
+
+// ==== INDICATORE CONNESSIONE INSTABILE ====
+// Se il polling automatico fallisce per un errore transitorio di rete (NON di
+// autenticazione, già gestito a parte da handleAuthError), lo segnaliamo solo
+// dopo un paio di tentativi falliti consecutivi (per non far lampeggiare
+// l'avviso per un singolo intoppo isolato), e lo nascondiamo di nuovo al
+// primo caricamento andato a buon fine.
+const POLL_FAILURE_THRESHOLD = 2;
+let pollFailureCount = 0;
+
+function setPollStatus_(show, text) {
+  const el = document.getElementById('poll-status');
+  if (!el) return;
+  el.style.display = show ? '' : 'none';
+  if (text) el.textContent = text;
+}
 
 function enterDashboard() {
   loginWrap.classList.add('hidden');
@@ -125,16 +142,43 @@ async function loadBookings(isFirstLoad) {
     }
 
     updateStats(bookings);
+    pollFailureCount = 0;
+    setPollStatus_(false);
   } catch (err) {
     console.error('Errore caricamento prenotazioni:', err.message);
-    handleAuthError(err);
+    if (handleAuthError(err)) return; // token scaduto: già gestito con reload, nessun avviso da mostrare
+
+    pollFailureCount++;
+    if (pollFailureCount >= POLL_FAILURE_THRESHOLD) {
+      setPollStatus_(true, '⚠ Connessione instabile: impossibile aggiornare le prenotazioni. Ritento automaticamente…');
+    }
   }
 }
 
 function renderTable(bookings, newIds) {
+  const visible = bookings.filter((b) => matchesTableSearch_(b, tableSearchTerm));
   tbody.innerHTML = '';
-  bookings.forEach((b) => appendRow(b, newIds && newIds.includes(b.ID)));
+  visible.forEach((b) => appendRow(b, newIds && newIds.includes(b.ID)));
 }
+
+// Confronta nome, email e data (formato gg/mm/aaaa o parti di essa) col
+// termine cercato: tutto lato client, sui dati già in memoria, senza nessuna
+// chiamata aggiuntiva al backend.
+function matchesTableSearch_(b, term) {
+  if (!term) return true;
+  const needle = term.toLowerCase();
+  const dataStr = `${b.Giorno}/${b.Mese}/${b.Anno}`;
+  return (
+    String(b.Nome || '').toLowerCase().includes(needle) ||
+    String(b.Email || '').toLowerCase().includes(needle) ||
+    dataStr.includes(needle)
+  );
+}
+
+document.getElementById('table-search').addEventListener('input', (e) => {
+  tableSearchTerm = e.target.value.trim();
+  renderTable(lastBookings); // riusa gli ultimi dati già caricati, filtro istantaneo
+});
 
 function appendRow(b, isNew) {
   const tr = document.createElement('tr');
@@ -144,6 +188,7 @@ function appendRow(b, isNew) {
   const createdStr = b.DataCreazione ? new Date(b.DataCreazione).toLocaleString('it-IT') : '';
   const stato = b.Stato || 'Confermata';
   const badgeClass = stato === 'Annullata' ? 'badge cancelled' : 'badge';
+  const depositStr = formatDepositCell_(b);
 
   tr.innerHTML = `
     <td data-label="Cliente">${escapeHtml(b.Nome)}</td>
@@ -152,6 +197,7 @@ function appendRow(b, isNew) {
     <td data-label="Data">${dataStr}</td>
     <td data-label="Ora">${escapeHtml(b.Ora)}</td>
     <td data-label="Stato"><span class="${badgeClass}">${escapeHtml(stato)}</span></td>
+    <td data-label="Acconto">${depositStr}</td>
     <td data-label="Creata il">${createdStr}</td>
     <td data-label="Azioni">
       <div class="row-actions">
@@ -178,6 +224,16 @@ tbody.addEventListener('click', (e) => {
     deleteBooking(booking);
   }
 });
+
+// Mostra in tabella il metodo di pagamento dell'acconto (se presente) con
+// il relativo importo, oppure un trattino se la prenotazione non ne prevede.
+function formatDepositCell_(b) {
+  const method = b.MetodoPagamento;
+  const amount = Number(b.ImportoAcconto) || 0;
+  if (!method || amount <= 0) return '—';
+  const label = method === 'bonifico' ? 'Bonifico' : method === 'contanti' ? 'Contanti' : escapeHtml(method);
+  return `${label} · €${amount.toFixed(2)}`;
+}
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -220,7 +276,15 @@ function updateStats(bookings) {
       todayCount++;
       todayPeople += Number(b.NumeroPersone) || 0;
     }
-    const bookingDate = new Date(`${b.Anno}-${mese}-${giorno}`);
+    // Costruita con il costruttore numerico (anno, mese-1, giorno): sempre
+    // in orario LOCALE, coerente con "now"/"in7days" (anch'essi locali). In
+    // precedenza si usava new Date(`${anno}-${mese}-${giorno}`): questo
+    // formato stringa "YYYY-MM-DD" viene interpretato da JavaScript come
+    // mezzanotte UTC, non locale — con il fuso orario italiano (UTC+1/+2)
+    // questo introduceva uno sfasamento di 1-2 ore che poteva far
+    // conteggiare in modo impreciso proprio le prenotazioni sul giorno di
+    // confine (il 7°) del contatore "Prossime 7 giorni".
+    const bookingDate = new Date(Number(b.Anno), Number(mese) - 1, Number(giorno));
     if (bookingDate >= now && bookingDate <= in7days) {
       upcoming++;
     }
@@ -237,8 +301,13 @@ function updateStats(bookings) {
 // ============================================================================
 let currentSettings = {
   capacityLunch: 0, capacityDinner: 0, shiftCutoff: '16:00', closingWeekday: -1, closingDates: [],
+  maxPeoplePerBooking: 30,
   whatsappEnabled: false, whatsappConfigured: false, whatsappPhoneNumberId: '', whatsappTemplateName: 'otp_verifica',
   whatsappTemplateLang: 'it', whatsappAccessTokenSet: false,
+  depositEnabled: false, depositAmountPerPerson: 0, depositMethods: ['contanti', 'bonifico'],
+  iban: '', bankHolder: '', bankName: '', depositInstructions: '',
+  emailSenderName: '', emailReplyTo: '', emailIncludeDepositInfo: true,
+  emailTemplate: '', emailTemplateDefault: '', reminderEnabled: false,
 };
 
 const settingsOverlay = document.getElementById('settings-modal-overlay');
@@ -250,9 +319,20 @@ async function loadSettings() {
     if (data.error) throw new Error(data.error);
     currentSettings = data.settings;
     renderSettingsSummary();
+    // Solo ORA i valori sono davvero arrivati dal server: prima di questo
+    // punto, aprire la modale "Impostazioni" avrebbe mostrato i valori di
+    // default locali (capienza 0, acconto disattivo, ecc.) invece di quelli
+    // reali, per la breve finestra tra l'ingresso in dashboard e la fine di
+    // questa chiamata.
+    document.getElementById('btn-open-settings').disabled = false;
   } catch (err) {
     console.error('Errore caricamento impostazioni:', err.message);
-    handleAuthError(err);
+    if (!handleAuthError(err)) {
+      // Errore non di autenticazione (es. rete instabile): meglio comunque
+      // sbloccare il pulsante piuttosto che lasciare l'admin bloccato senza
+      // alcun modo di aprire le impostazioni fino al prossimo refresh.
+      document.getElementById('btn-open-settings').disabled = false;
+    }
   }
 }
 
@@ -267,6 +347,25 @@ function renderSettingsSummary() {
     currentSettings.closingDates.length > 0
       ? currentSettings.closingDates.map(formatDateIt).join(', ')
       : 'Nessuna';
+  document.getElementById('summary-deposit').textContent = currentSettings.depositEnabled
+    ? `€${Number(currentSettings.depositAmountPerPerson || 0).toFixed(2)}/persona (${(currentSettings.depositMethods || []).join(' + ') || 'nessun metodo'})`
+    : 'Non richiesto';
+  // A colpo d'occhio, senza dover aprire le impostazioni: dice se l'email di
+  // conferma include davvero i dettagli acconto/IBAN o è una semplice
+  // conferma (utile perché questo flag non è ovvio dal solo importo/metodo).
+  document.getElementById('summary-email-deposit-info').textContent =
+    currentSettings.emailIncludeDepositInfo !== false ? 'Inclusi' : 'Esclusi (email semplice)';
+}
+
+function renderDepositHint() {
+  const enabled = document.getElementById('set-deposit-enabled').checked;
+  const fields = document.getElementById('deposit-fields');
+  fields.style.opacity = enabled ? '1' : '0.55';
+  // Oltre a sfumarli visivamente, disabilita davvero i controlli quando
+  // l'acconto è spento: prima restavano cliccabili (solo sfumati), quindi
+  // l'admin poteva deselezionare per sbaglio i metodi di pagamento salvati
+  // in precedenza e, salvando, sovrascriverli inavvertitamente.
+  fields.querySelectorAll('input, textarea').forEach((el) => { el.disabled = !enabled; });
 }
 
 function renderWhatsappHint() {
@@ -326,12 +425,35 @@ document.getElementById('btn-open-settings').addEventListener('click', () => {
   document.getElementById('set-capacity-lunch').value = currentSettings.capacityLunch || 0;
   document.getElementById('set-capacity-dinner').value = currentSettings.capacityDinner || 0;
   document.getElementById('set-shift-cutoff').value = currentSettings.shiftCutoff || '16:00';
+  document.getElementById('set-max-people').value = currentSettings.maxPeoplePerBooking || 30;
   document.getElementById('set-weekday').value = String(currentSettings.closingWeekday);
   document.getElementById('set-whatsapp-enabled').checked = !!currentSettings.whatsappEnabled;
   document.getElementById('set-whatsapp-phone-id').value = currentSettings.whatsappPhoneNumberId || '';
   document.getElementById('set-whatsapp-token').value = ''; // il token non viene mai rimandato dal server, per sicurezza
   document.getElementById('set-whatsapp-template-name').value = currentSettings.whatsappTemplateName || 'otp_verifica';
   document.getElementById('set-whatsapp-template-lang').value = currentSettings.whatsappTemplateLang || 'it';
+
+  const depositMethods = currentSettings.depositMethods || ['contanti', 'bonifico'];
+  document.getElementById('set-deposit-enabled').checked = !!currentSettings.depositEnabled;
+  document.getElementById('set-deposit-amount').value = currentSettings.depositAmountPerPerson || 0;
+  document.getElementById('set-deposit-method-contanti').checked = depositMethods.includes('contanti');
+  document.getElementById('set-deposit-method-bonifico').checked = depositMethods.includes('bonifico');
+  document.getElementById('set-deposit-iban').value = currentSettings.iban || '';
+  document.getElementById('set-deposit-holder').value = currentSettings.bankHolder || '';
+  document.getElementById('set-deposit-bank-name').value = currentSettings.bankName || '';
+  document.getElementById('set-deposit-instructions').value = currentSettings.depositInstructions || '';
+  renderDepositHint();
+
+  // Se l'admin non ha mai salvato questa impostazione, il backend restituisce
+  // "true" di default (comportamento storico: acconto/IBAN sempre inclusi).
+  document.getElementById('set-email-sender-name').value = currentSettings.emailSenderName || '';
+  document.getElementById('set-email-reply-to').value = currentSettings.emailReplyTo || '';
+  document.getElementById('set-email-include-deposit-info').checked = currentSettings.emailIncludeDepositInfo !== false;
+  document.getElementById('set-email-template').value = currentSettings.emailTemplate || '';
+  document.getElementById('set-email-test-address').value = '';
+  clearMsg('test-email-msg');
+  document.getElementById('set-reminder-enabled').checked = !!currentSettings.reminderEnabled;
+
   renderClosingDatesChips();
   renderWhatsappHint();
   clearMsg('settings-msg');
@@ -340,6 +462,37 @@ document.getElementById('btn-open-settings').addEventListener('click', () => {
 document.getElementById('set-whatsapp-enabled').addEventListener('change', (e) => {
   currentSettings.whatsappEnabled = e.target.checked;
   renderWhatsappHint();
+});
+document.getElementById('set-deposit-enabled').addEventListener('change', renderDepositHint);
+document.getElementById('btn-reset-email-template').addEventListener('click', () => {
+  document.getElementById('set-email-template').value = currentSettings.emailTemplateDefault || '';
+});
+document.getElementById('btn-send-test-email').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-send-test-email');
+  const testEmail = document.getElementById('set-email-test-address').value.trim();
+  clearMsg('test-email-msg');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = 'Invio…';
+  try {
+    // Manda i valori ATTUALMENTE nel form (anche se non ancora salvati), così
+    // l'admin può provare testo/mittente/flag acconto prima di salvarli.
+    const data = await callApi('adminSendTestEmail', {
+      token: getAdminToken(),
+      testEmail,
+      emailSenderName: document.getElementById('set-email-sender-name').value.trim(),
+      emailReplyTo: document.getElementById('set-email-reply-to').value.trim(),
+      emailIncludeDepositInfo: document.getElementById('set-email-include-deposit-info').checked,
+      emailTemplate: document.getElementById('set-email-template').value.trim(),
+    });
+    if (data.error) throw new Error(data.error);
+    showMsg('test-email-msg', `Email di prova inviata a ${data.sentTo} ✅`, 'success');
+  } catch (err) {
+    showMsg('test-email-msg', err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 });
 document.getElementById('btn-close-settings').addEventListener('click', () => {
   settingsOverlay.classList.add('hidden');
@@ -352,14 +505,50 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
   const capacityLunch = Number(document.getElementById('set-capacity-lunch').value || 0);
   const capacityDinner = Number(document.getElementById('set-capacity-dinner').value || 0);
   const shiftCutoff = document.getElementById('set-shift-cutoff').value || '16:00';
+  const maxPeoplePerBooking = Number(document.getElementById('set-max-people').value || 30);
   const closingWeekday = Number(document.getElementById('set-weekday').value);
   const btn = document.getElementById('btn-save-settings');
+
+  if (isNaN(maxPeoplePerBooking) || maxPeoplePerBooking < 1) {
+    return showMsg('settings-msg', 'Il numero massimo di persone per prenotazione deve essere almeno 1', 'error');
+  }
 
   const whatsappEnabled = document.getElementById('set-whatsapp-enabled').checked;
   const whatsappPhoneNumberId = document.getElementById('set-whatsapp-phone-id').value.trim();
   const whatsappAccessToken = document.getElementById('set-whatsapp-token').value.trim(); // vuoto = non toccare il token salvato
   const whatsappTemplateName = document.getElementById('set-whatsapp-template-name').value.trim();
   const whatsappTemplateLang = document.getElementById('set-whatsapp-template-lang').value.trim();
+
+  const depositEnabled = document.getElementById('set-deposit-enabled').checked;
+  const depositAmountPerPerson = Number(document.getElementById('set-deposit-amount').value || 0);
+  const depositMethods = [];
+  if (document.getElementById('set-deposit-method-contanti').checked) depositMethods.push('contanti');
+  if (document.getElementById('set-deposit-method-bonifico').checked) depositMethods.push('bonifico');
+  const iban = document.getElementById('set-deposit-iban').value.trim();
+  const bankHolder = document.getElementById('set-deposit-holder').value.trim();
+  const bankName = document.getElementById('set-deposit-bank-name').value.trim();
+  const depositInstructions = document.getElementById('set-deposit-instructions').value.trim();
+
+  // Un acconto "attivo" con importo 0 (o non numerico) sarebbe fuorviante:
+  // il box acconto non comparirebbe comunque mai al cliente (vedi
+  // isDepositActive_ lato server), pur risultando "attivo" qui in
+  // impostazioni. Stesso controllo replicato lato server in
+  // validateDepositSettings_, questo è solo un feedback immediato.
+  if (depositEnabled && (isNaN(depositAmountPerPerson) || depositAmountPerPerson <= 0)) {
+    return showMsg('settings-msg', 'Inserisci un importo acconto per persona maggiore di zero', 'error');
+  }
+  if (depositEnabled && depositMethods.length === 0) {
+    return showMsg('settings-msg', 'Seleziona almeno un metodo di pagamento per l\'acconto (contanti e/o bonifico)', 'error');
+  }
+  if (depositEnabled && depositMethods.includes('bonifico') && !iban) {
+    return showMsg('settings-msg', 'Inserisci l\'IBAN per accettare l\'acconto tramite bonifico', 'error');
+  }
+
+  const emailSenderName = document.getElementById('set-email-sender-name').value.trim();
+  const emailReplyTo = document.getElementById('set-email-reply-to').value.trim();
+  const emailIncludeDepositInfo = document.getElementById('set-email-include-deposit-info').checked;
+  const emailTemplate = document.getElementById('set-email-template').value.trim();
+  const reminderEnabled = document.getElementById('set-reminder-enabled').checked;
 
   btn.disabled = true;
   try {
@@ -368,6 +557,7 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
       capacityLunch,
       capacityDinner,
       shiftCutoff,
+      maxPeoplePerBooking,
       closingWeekday,
       closingDates: currentSettings.closingDates,
       whatsappEnabled,
@@ -375,6 +565,18 @@ document.getElementById('btn-save-settings').addEventListener('click', async () 
       whatsappAccessToken,
       whatsappTemplateName,
       whatsappTemplateLang,
+      depositEnabled,
+      depositAmountPerPerson,
+      depositMethods,
+      iban,
+      bankHolder,
+      bankName,
+      depositInstructions,
+      emailSenderName,
+      emailReplyTo,
+      emailIncludeDepositInfo,
+      emailTemplate,
+      reminderEnabled,
     });
     if (data.error) throw new Error(data.error);
 
@@ -406,6 +608,8 @@ function openBookingModal(booking) {
   document.getElementById('bk-people').value = isEdit ? booking.NumeroPersone : '';
   document.getElementById('bk-time').value = isEdit ? booking.Ora : '';
   document.getElementById('bk-status').value = isEdit ? (booking.Stato || 'Confermata') : 'Confermata';
+  document.getElementById('bk-payment-method').value = isEdit ? (booking.MetodoPagamento || '') : '';
+  document.getElementById('bk-deposit-amount').value = isEdit && booking.ImportoAcconto ? booking.ImportoAcconto : '';
 
   if (isEdit) {
     const y = booking.Anno, m = String(booking.Mese).padStart(2, '0'), d = String(booking.Giorno).padStart(2, '0');
@@ -449,7 +653,10 @@ async function checkModalAvailability() {
   box.textContent = 'Controllo disponibilità…';
 
   try {
-    const data = await callApi('checkAvailability', { day, month, year, time: timeVal, excludeId: editingId });
+    // Il token admin è ora necessario: il backend onora "excludeId" solo se
+    // accompagnato da un token admin valido (protezione contro l'uso di
+    // questo parametro da chiamate pubbliche non autenticate).
+    const data = await callApi('checkAvailability', { token: getAdminToken(), day, month, year, time: timeVal, excludeId: editingId });
     if (myToken !== availabilityCheckToken) return; // risposta obsoleta, ignora
     if (data.error) throw new Error(data.error);
 
@@ -481,6 +688,8 @@ document.getElementById('btn-save-booking').addEventListener('click', async () =
   const dateVal = document.getElementById('bk-date').value;
   const time = document.getElementById('bk-time').value;
   const status = document.getElementById('bk-status').value;
+  const paymentMethod = document.getElementById('bk-payment-method').value;
+  const depositAmount = document.getElementById('bk-deposit-amount').value;
   const btn = document.getElementById('btn-save-booking');
 
   if (!name || !people || !dateVal || !time) {
@@ -489,7 +698,7 @@ document.getElementById('btn-save-booking').addEventListener('click', async () =
 
   const [year, month, day] = dateVal.split('-');
   const action = id ? 'adminUpdateBooking' : 'adminCreateBooking';
-  const payload = { token: getAdminToken(), id, name, email, people, day, month, year, time, status };
+  const payload = { token: getAdminToken(), id, name, email, people, day, month, year, time, status, paymentMethod, depositAmount };
 
   btn.disabled = true;
   try {
@@ -522,7 +731,11 @@ async function deleteBooking(booking) {
 // PERSONALIZZAZIONE HOME PAGE (logo, nome attività, tagline, benvenuto)
 // ============================================================================
 const homepageOverlay = document.getElementById('homepage-modal-overlay');
-const MAX_LOGO_FILE_BYTES = 200 * 1024; // 200 KB grezzi, margine sotto il limite lato server
+// 200 KB è la dimensione del file ORIGINALE scelto dall'admin. Una volta
+// convertito in stringa base64 (vedi FileReader più sotto) diventa circa il
+// 33% più pesante (~266 KB), ben sotto il limite di 450000 caratteri
+// controllato lato server in actionAdminUploadLogo_: il margine è voluto.
+const MAX_LOGO_FILE_BYTES = 200 * 1024;
 
 let currentHomepage = { businessName: '', tagline: '', welcomeMessage: '', logoDataUrl: '', theme: 'gold' };
 let pendingLogoDataUrl = null; // nuovo logo selezionato ma non ancora salvato
@@ -675,3 +888,192 @@ document.getElementById('btn-save-homepage').addEventListener('click', async () 
     enterDashboard();
   }
 })();
+
+// ============================================================================
+// REPORT PER PERIODO: stampa (PDF via finestra di stampa del browser) ed
+// esportazione CSV delle prenotazioni comprese tra due date "dal"/"al".
+// Lavora sui dati già caricati in "lastBookings" (aggiornati dal polling),
+// senza bisogno di nessuna chiamata aggiuntiva al backend.
+// ============================================================================
+const reportOverlay = document.getElementById('report-modal-overlay');
+
+// Chiave "YYYY-MM-DD" a partire dai campi Giorno/Mese/Anno del foglio (che
+// possono arrivare come numeri non paddati, es. "5" invece di "05"): stesso
+// approccio già usato in updateStats/pad2Stat_, per poter confrontare le
+// date con un semplice confronto tra stringhe (funziona perché il formato è
+// sempre a lunghezza fissa, zero-paddato).
+function bookingDateKey_(b) {
+  return `${b.Anno}-${pad2Stat_(b.Mese)}-${pad2Stat_(b.Giorno)}`;
+}
+
+function filteredReportBookings_() {
+  const from = document.getElementById('report-date-from').value; // "" = nessun limite inferiore
+  const to = document.getElementById('report-date-to').value;     // "" = nessun limite superiore
+  const includeCancelled = document.getElementById('report-include-cancelled').checked;
+
+  return lastBookings
+    .filter((b) => includeCancelled || (b.Stato || 'Confermata') !== 'Annullata')
+    .filter((b) => {
+      const key = bookingDateKey_(b);
+      if (from && key < from) return false;
+      if (to && key > to) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const ka = bookingDateKey_(a) + ' ' + a.Ora;
+      const kb = bookingDateKey_(b) + ' ' + b.Ora;
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+}
+
+function updateReportCountHint_() {
+  const hint = document.getElementById('report-count-hint');
+  const from = document.getElementById('report-date-from').value;
+  const to = document.getElementById('report-date-to').value;
+  if (!from && !to) {
+    hint.textContent = 'Nessun intervallo scelto: verranno incluse TUTTE le prenotazioni.';
+    hint.style.color = '';
+    return;
+  }
+  const n = filteredReportBookings_().length;
+  hint.textContent = n === 0
+    ? 'Nessuna prenotazione trovata in questo intervallo.'
+    : `${n} prenotazion${n === 1 ? 'e trovata' : 'i trovate'} nel periodo selezionato.`;
+  hint.style.color = n === 0 ? 'var(--error)' : '';
+}
+
+document.getElementById('btn-open-report').addEventListener('click', () => {
+  closeAllModals();
+  document.getElementById('report-date-from').value = '';
+  document.getElementById('report-date-to').value = '';
+  document.getElementById('report-include-cancelled').checked = false;
+  clearMsg('report-msg');
+  updateReportCountHint_();
+  reportOverlay.classList.remove('hidden');
+});
+document.getElementById('btn-close-report').addEventListener('click', () => reportOverlay.classList.add('hidden'));
+reportOverlay.addEventListener('click', (e) => {
+  if (e.target === reportOverlay) reportOverlay.classList.add('hidden');
+});
+['report-date-from', 'report-date-to', 'report-include-cancelled'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', updateReportCountHint_);
+});
+
+function reportPeriodLabel_() {
+  const from = document.getElementById('report-date-from').value;
+  const to = document.getElementById('report-date-to').value;
+  if (!from && !to) return 'Tutte le prenotazioni';
+  if (from && to) return `Dal ${formatDateIt(from)} al ${formatDateIt(to)}`;
+  if (from) return `Dal ${formatDateIt(from)}`;
+  return `Fino al ${formatDateIt(to)}`;
+}
+
+// ---- STAMPA / PDF ----
+// Apre subito (in modo SINCRONO, dentro il gestore del click) una finestra
+// con una tabella formattata per la stampa, poi richiama window.print(): è
+// lo stesso meccanismo con cui QUALSIASI browser genera un PDF ("Salva come
+// PDF" tra le stampanti disponibili nella finestra di stampa), senza bisogno
+// di generare il PDF lato server (Apps Script non offre un vero motore PDF
+// gratuito per layout tabellari come questo). La finestra va aperta PRIMA di
+// qualunque await, altrimenti i blocca-popup del browser la bloccherebbero.
+document.getElementById('btn-report-print').addEventListener('click', () => {
+  const rows = filteredReportBookings_();
+  if (!rows.length) {
+    return showMsg('report-msg', 'Nessuna prenotazione da stampare in questo intervallo', 'error');
+  }
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    return showMsg('report-msg', 'Il browser ha bloccato la finestra di stampa: consenti i popup per questo sito e riprova', 'error');
+  }
+
+  const businessName = (currentHomepage && currentHomepage.businessName) || 'Prenotazioni';
+  const generatedAt = new Date().toLocaleString('it-IT');
+  const totalPeople = rows.reduce((sum, b) => sum + (Number(b.NumeroPersone) || 0), 0);
+
+  const tableRows = rows.map((b) => {
+    const stato = b.Stato || 'Confermata';
+    return `
+      <tr>
+        <td>${escapeHtml(b.Nome)}</td>
+        <td>${escapeHtml(b.Email)}</td>
+        <td>${escapeHtml(String(b.NumeroPersone))}</td>
+        <td>${pad2Stat_(b.Giorno)}/${pad2Stat_(b.Mese)}/${b.Anno}</td>
+        <td>${escapeHtml(b.Ora)}</td>
+        <td>${escapeHtml(stato)}</td>
+        <td>${formatDepositCell_(b)}</td>
+      </tr>`;
+  }).join('');
+
+  win.document.write(`<!DOCTYPE html>
+<html lang="it"><head><meta charset="UTF-8">
+<title>Prenotazioni — ${escapeHtml(businessName)}</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; color: #111; margin: 24px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .period { font-size: 13px; color: #555; margin-bottom: 2px; }
+  .meta { font-size: 11px; color: #888; margin-bottom: 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+  th { background: #f0f0f0; }
+  tfoot td { font-weight: 700; border-top: 2px solid #333; }
+  @media print { body { margin: 8mm; } }
+</style>
+</head><body>
+  <h1>${escapeHtml(businessName)} — Elenco prenotazioni</h1>
+  <div class="period">${escapeHtml(reportPeriodLabel_())}</div>
+  <div class="meta">Generato il ${escapeHtml(generatedAt)} — ${rows.length} prenotazioni, ${totalPeople} persone totali</div>
+  <table>
+    <thead><tr><th>Cliente</th><th>Email</th><th>Persone</th><th>Data</th><th>Ora</th><th>Stato</th><th>Acconto</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+    <tfoot><tr><td colspan="2">Totale</td><td>${totalPeople}</td><td colspan="4"></td></tr></tfoot>
+  </table>
+</body></html>`);
+  win.document.close();
+  win.focus();
+  // Piccolo ritardo per dare al browser il tempo di finire il rendering
+  // prima di aprire la finestra di stampa.
+  setTimeout(() => win.print(), 250);
+});
+
+// ---- ESPORTAZIONE CSV ----
+function csvEscape_(value) {
+  const str = value === null || value === undefined ? '' : String(value);
+  // Se contiene virgola, virgolette o ritorno a capo va racchiuso tra
+  // virgolette, raddoppiando eventuali virgolette interne (regola standard CSV).
+  if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+  return str;
+}
+
+document.getElementById('btn-report-csv').addEventListener('click', () => {
+  const rows = filteredReportBookings_();
+  if (!rows.length) {
+    return showMsg('report-msg', 'Nessuna prenotazione da esportare in questo intervallo', 'error');
+  }
+
+  const header = ['Cliente', 'Email', 'Persone', 'Data', 'Ora', 'Stato', 'Metodo pagamento', 'Importo acconto', 'Creata il'];
+  const lines = [header.map(csvEscape_).join(',')];
+  rows.forEach((b) => {
+    const dataStr = `${pad2Stat_(b.Giorno)}/${pad2Stat_(b.Mese)}/${b.Anno}`;
+    const createdStr = b.DataCreazione ? new Date(b.DataCreazione).toLocaleString('it-IT') : '';
+    lines.push([
+      b.Nome, b.Email, b.NumeroPersone, dataStr, b.Ora, b.Stato || 'Confermata',
+      b.MetodoPagamento || '', Number(b.ImportoAcconto) || 0, createdStr,
+    ].map(csvEscape_).join(','));
+  });
+
+  // BOM UTF-8 in testa: senza, Excel su Windows interpreta male gli accenti
+  // (è la causa più comune di "caratteri strani" nei CSV aperti in Excel).
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const from = document.getElementById('report-date-from').value || 'inizio';
+  const to = document.getElementById('report-date-to').value || 'oggi';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `prenotazioni_${from}_${to}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showMsg('report-msg', `CSV esportato: ${rows.length} prenotazioni ✅`, 'success');
+});

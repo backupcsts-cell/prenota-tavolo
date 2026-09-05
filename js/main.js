@@ -1,7 +1,7 @@
 // ==== CONFIGURAZIONE ====
 // Incolla qui l'URL del tuo Web App di Google Apps Script (termina con /exec).
 // Lo ottieni da: Apps Script → Distribuisci → Nuova implementazione → Applicazione web.
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxF550d3jm3IH7ENWp9zSYNVPBbH4dEutX5PWy8y3IAmInwvW1FRASIaFHBUgFHQdfF/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwds58S_ptrk9V6RxY_isb1j29qQZHKvt9H9S-tOctgNe5FgOhPpbbV31MH9FlCb7Xw/exec';
 
 // Helper: chiama sempre la stessa Web App passando un'azione + dati nel corpo.
 // NOTA: usiamo 'text/plain' come Content-Type (non 'application/json') perché
@@ -41,6 +41,23 @@ let phoneVerificationEnabled = false; // aggiornato da checkConfig() all'avvio
 let bookingBlocked = false; // true se la data scelta è chiusa o senza posti disponibili
 let availabilityCheckToken = 0;
 
+// ==== ACCONTO PRENOTAZIONE (contanti / bonifico): stato aggiornato da checkConfig() ====
+let depositEnabled = false;
+let depositAmountPerPerson = 0;
+let depositMethods = [];
+let depositBankInfo = { iban: '', bankHolder: '', bankName: '', depositInstructions: '' };
+// Se true (default), l'email di conferma inviata dopo la prenotazione include
+// i dettagli dell'acconto/IBAN; se false, l'admin ha scelto di inviare solo
+// una conferma semplice. Usato per non promettere al cliente, nel messaggio
+// mostrato subito dopo la prenotazione, un'email con dettagli che in realtà
+// non arriveranno.
+let emailIncludeDepositInfo = true;
+
+// ==== NUMERO MASSIMO DI PERSONE per prenotazione, impostato dall'admin ====
+// Default 30 finché checkConfig() non risponde: coincide con l'attributo
+// "max" già presente nell'HTML come fallback statico.
+let maxPeoplePerBooking = 30;
+
 // Chiede al backend se la verifica telefono via WhatsApp è attiva in questo momento.
 // Spenta di default: se il gestore non l'ha ancora configurata, questo step
 // viene semplicemente saltato, senza alcun impatto sull'esperienza cliente.
@@ -48,11 +65,105 @@ async function checkConfig() {
   try {
     const data = await callApi('getConfig', {});
     phoneVerificationEnabled = !!data.phoneVerificationEnabled;
+    depositEnabled = !!data.depositEnabled;
+    depositAmountPerPerson = Number(data.depositAmountPerPerson) || 0;
+    depositMethods = Array.isArray(data.depositMethods) ? data.depositMethods : [];
+    depositBankInfo = {
+      iban: data.iban || '',
+      bankHolder: data.bankHolder || '',
+      bankName: data.bankName || '',
+      depositInstructions: data.depositInstructions || '',
+    };
+    emailIncludeDepositInfo = data.emailIncludeDepositInfo !== false;
+    // Numero massimo di persone impostato dall'admin: aggiorna subito
+    // l'attributo "max" del campo, così il browser stesso impedisce di
+    // digitare un numero superiore (il vero controllo resta comunque lato
+    // server, questo è solo un aiuto immediato per il cliente).
+    if (Number(data.maxPeoplePerBooking) > 0) {
+      maxPeoplePerBooking = Number(data.maxPeoplePerBooking);
+      document.getElementById('book-people').setAttribute('max', String(maxPeoplePerBooking));
+      document.getElementById('book-people-hint').textContent = `Massimo ${maxPeoplePerBooking} persone per prenotazione. Per gruppi più numerosi, contattaci direttamente.`;
+    }
     applyHomepageCustomization(data);
+    setupDepositUI();
   } catch (err) {
     phoneVerificationEnabled = false;
+    depositEnabled = false;
   }
 }
+
+// ==== ACCONTO: unica condizione che decide se l'acconto è davvero attivo e
+// utilizzabile (box visibile E scelta del metodo obbligatoria). Usata sia da
+// setupDepositUI() che dal click su "Conferma prenotazione", così le due
+// logiche non possono più andare fuori sincrono tra loro.
+function isDepositActive() {
+  return depositEnabled && depositAmountPerPerson > 0 && depositMethods.length > 0;
+}
+
+// ==== ACCONTO: mostra/nasconde la sezione e i metodi in base alle impostazioni admin ====
+function setupDepositUI() {
+  const box = document.getElementById('deposit-box');
+  if (!isDepositActive()) {
+    box.classList.add('hidden');
+    return;
+  }
+  box.classList.remove('hidden');
+
+  document.getElementById('pm-contanti-wrap').classList.toggle('hidden', !depositMethods.includes('contanti'));
+  document.getElementById('pm-bonifico-wrap').classList.toggle('hidden', !depositMethods.includes('bonifico'));
+
+  // Se è disponibile un solo metodo di pagamento, lo pre-seleziona: il
+  // cliente non deve scegliere tra opzioni quando in realtà ce n'è solo una.
+  if (depositMethods.length === 1) {
+    const onlyMethod = document.getElementById('pm-' + depositMethods[0]);
+    if (onlyMethod) onlyMethod.checked = true;
+  }
+  updateDepositInfo();
+}
+
+function selectedPaymentMethod() {
+  const checked = document.querySelector('#payment-method-group input[name="payment-method"]:checked');
+  return checked ? checked.value : '';
+}
+
+// Ricalcola e mostra l'importo dell'acconto (persone × importo a persona) e,
+// se è selezionato il bonifico, i dati IBAN da usare per il pagamento.
+function updateDepositInfo() {
+  const info = document.getElementById('deposit-info');
+  if (!isDepositActive()) {
+    info.innerHTML = '';
+    return;
+  }
+
+  const people = Number(document.getElementById('book-people').value) || 0;
+  const amount = (depositAmountPerPerson * people).toFixed(2);
+  const method = selectedPaymentMethod();
+
+  let html = `💶 Acconto richiesto: <strong>€${amount}</strong> (€${depositAmountPerPerson.toFixed(2)} a persona)`;
+
+  if (method === 'bonifico') {
+    html += `<br>IBAN: <strong>${escapeHtml_(depositBankInfo.iban || 'da comunicare')}</strong>`;
+    if (depositBankInfo.bankHolder) html += `<br>Intestatario: ${escapeHtml_(depositBankInfo.bankHolder)}`;
+    if (depositBankInfo.bankName) html += `<br>Banca: ${escapeHtml_(depositBankInfo.bankName)}`;
+    if (depositBankInfo.depositInstructions) {
+      html += `<br><span style="opacity:.85">${escapeHtml_(depositBankInfo.depositInstructions)}</span>`;
+    }
+    html += `<br><span style="opacity:.85">Riceverai questi dati anche via email dopo la conferma della prenotazione.</span>`;
+  } else if (method === 'contanti') {
+    html += `<br>Da saldare in contanti al tuo arrivo.`;
+  }
+
+  info.innerHTML = html;
+}
+
+function escapeHtml_(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+document.getElementById('book-people').addEventListener('input', updateDepositInfo);
+document.getElementById('payment-method-group').addEventListener('change', updateDepositInfo);
 
 // Applica logo, nome attività, sottotitolo e messaggio di benvenuto impostati
 // dall'admin. Se un campo non è stato personalizzato, resta il testo di
@@ -135,9 +246,29 @@ function clearSession() {
 
   const session = getSession();
   if (session.token) {
-    document.getElementById('badge-name').textContent = session.name;
-    setActiveDot(2);
-    showStep(stepBooking);
+    // Verifica subito col backend che il token salvato sia ancora valido,
+    // invece di mostrare ottimisticamente lo step di prenotazione e far
+    // scoprire una sessione scaduta (dopo 30 giorni) solo al momento di
+    // confermare una prenotazione, con un messaggio d'errore fuori contesto.
+    try {
+      const check = await callApi('checkSession', { token: session.token });
+      if (check.valid) {
+        document.getElementById('badge-name').textContent = session.name;
+        setActiveDot(2);
+        showStep(stepBooking);
+      } else {
+        clearSession();
+        showMsg('register-msg', 'La tua sessione precedente è scaduta: verifica di nuovo la tua email per continuare.', 'error');
+      }
+    } catch (err) {
+      // Errore di rete durante il controllo: non blocchiamo l'utente, lo
+      // lasciamo comunque procedere allo step di prenotazione (sarà il
+      // backend, al momento della conferma, a rifiutare un token davvero
+      // scaduto se necessario).
+      document.getElementById('badge-name').textContent = session.name;
+      setActiveDot(2);
+      showStep(stepBooking);
+    }
   }
 })();
 
@@ -330,22 +461,51 @@ document.getElementById('btn-book').addEventListener('click', async () => {
   if (!people || !dateVal || !time) {
     return showMsg('booking-msg', 'Compila tutti i campi', 'error');
   }
+  if (Number(people) > maxPeoplePerBooking) {
+    return showMsg('booking-msg', `Numero di persone troppo alto: massimo ${maxPeoplePerBooking} per prenotazione. Per gruppi più numerosi, contattaci direttamente.`, 'error');
+  }
   if (bookingBlocked) {
     return showMsg('booking-msg', 'Non è possibile prenotare in questa data: chiusura o posti esauriti', 'error');
+  }
+
+  // Se l'acconto è davvero attivo (stessa condizione usata per mostrare il
+  // box), il cliente deve indicare un metodo di pagamento prima di poter
+  // confermare la prenotazione. Prima questa verifica usava solo
+  // "depositEnabled": se l'admin attivava l'acconto ma lasciava l'importo a 0
+  // o non selezionava alcun metodo, il box restava nascosto ma qui si
+  // bloccava comunque ogni prenotazione chiedendo un metodo introvabile.
+  let paymentMethod = '';
+  if (isDepositActive()) {
+    paymentMethod = selectedPaymentMethod();
+    if (!paymentMethod) {
+      return showMsg('booking-msg', 'Seleziona un metodo di pagamento per l\'acconto', 'error');
+    }
   }
 
   const [year, month, day] = dateVal.split('-');
 
   setLoading(btn, true, 'Conferma prenotazione');
   try {
-    const data = await callApi('book', { token: session.token, people, day, month, year, time });
+    const payload = { token: session.token, people, day, month, year, time };
+    if (isDepositActive()) payload.paymentMethod = paymentMethod;
+
+    const data = await callApi('book', payload);
     if (data.error) throw new Error(data.error);
 
-    showMsg('booking-msg', `Tavolo prenotato per ${people} persone il ${day}/${month}/${year} alle ${time} ✅`, 'success');
+    // Il messaggio finale riflette davvero cosa arriverà via email: se
+    // l'acconto è attivo E l'admin ha scelto di includerne i dettagli
+    // nell'email, prometti quell'email; altrimenti nessun accenno, per non
+    // promettere dettagli che non arriveranno mai.
+    const emailNote = isDepositActive() && emailIncludeDepositInfo
+      ? ' Riceverai a breve un\'email di conferma con i dettagli per il pagamento dell\'acconto.'
+      : '';
+    showMsg('booking-msg', `Tavolo prenotato per ${people} persone il ${day}/${month}/${year} alle ${time} ✅${emailNote}`, 'success');
     document.getElementById('book-people').value = '';
     document.getElementById('book-date').value = '';
     document.getElementById('book-time').value = '';
     document.getElementById('book-availability').className = 'availability-box';
+    document.querySelectorAll('#payment-method-group input[name="payment-method"]').forEach((r) => (r.checked = false));
+    updateDepositInfo();
     bookingBlocked = false;
   } catch (err) {
     showMsg('booking-msg', err.message, 'error');

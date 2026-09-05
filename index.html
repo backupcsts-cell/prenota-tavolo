@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Prenota il tuo Tavolo</title>
-<link rel="stylesheet" href="css/style.css?v=9" />
+<link rel="stylesheet" href="css/style.css?v=13" />
 
 <!-- ===== PWA: manifest, icone e theme color (necessari per PWABuilder / installazione su Android) ===== -->
 <link rel="manifest" href="manifest.json" />
@@ -63,7 +63,7 @@
     <p class="subtitle">Se vuoi, puoi verificare anche il tuo numero WhatsApp. Puoi anche saltare questo passaggio.</p>
 
     <label>Numero WhatsApp (con prefisso internazionale)</label>
-    <input type="tel" id="reg-phone" placeholder="+393331234567" />
+    <input type="tel" id="reg-phone" placeholder="+393331234567" pattern="^\+[1-9]\d{6,14}$" title="Formato internazionale con prefisso, es: +393331234567" />
 
     <button id="btn-send-phone-code">Invia codice via WhatsApp</button>
     <button class="secondary" id="btn-skip-phone">Salta questo passaggio →</button>
@@ -95,6 +95,7 @@
 
     <label>Numero di persone</label>
     <input type="number" id="book-people" min="1" max="30" placeholder="es. 4" />
+    <div class="hint-text" id="book-people-hint"></div>
 
     <label>Data della prenotazione</label>
     <input type="date" id="book-date" />
@@ -103,12 +104,28 @@
     <label>Orario</label>
     <input type="time" id="book-time" />
 
+    <!-- Sezione acconto: visibile solo se il gestore l'ha attivata dalle Impostazioni -->
+    <div class="deposit-box hidden" id="deposit-box">
+      <label style="margin-top:0;">Metodo di pagamento acconto</label>
+      <div class="radio-group" id="payment-method-group">
+        <label class="radio-option" id="pm-contanti-wrap">
+          <input type="radio" name="payment-method" value="contanti" id="pm-contanti" />
+          <span>💵 Contanti (in loco)</span>
+        </label>
+        <label class="radio-option" id="pm-bonifico-wrap">
+          <input type="radio" name="payment-method" value="bonifico" id="pm-bonifico" />
+          <span>🏦 Bonifico bancario</span>
+        </label>
+      </div>
+      <div class="deposit-info" id="deposit-info"></div>
+    </div>
+
     <button id="btn-book">Conferma prenotazione</button>
     <div class="msg" id="booking-msg"></div>
   </div>
 
 </div>
 
-<script src="js/main.js?v=9"></script>
+<script src="js/main.js?v=13"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Pannello Admin — Prenotazioni</title>
-<link rel="stylesheet" href="css/style.css?v=9" />
+<link rel="stylesheet" href="css/style.css?v=13" />
 </head>
 <body>
 
@@ -34,10 +34,12 @@
       <img id="admin-logo" class="site-logo-admin hidden" alt="Logo attività" />
       <h1 style="font-size:22px;">★ Dashboard Prenotazioni</h1>
       <p style="margin-top:2px;"><span class="live-dot"></span>aggiornamento automatico ogni ~12 secondi</p>
+      <p class="hint-text" id="poll-status" style="display:none; color:var(--error); margin-top:4px;"></p>
     </div>
     <div class="dash-actions">
       <button class="secondary" style="width:auto; margin:0;" id="btn-open-homepage">🎨 Home page</button>
-      <button class="secondary" style="width:auto; margin:0;" id="btn-open-settings">⚙ Impostazioni</button>
+      <button class="secondary" style="width:auto; margin:0;" id="btn-open-settings" disabled>⚙ Impostazioni</button>
+      <button class="secondary" style="width:auto; margin:0;" id="btn-open-report">📄 Report / Stampa</button>
       <button style="width:auto; margin:0;" id="btn-new-booking">+ Nuova prenotazione</button>
       <button class="secondary" style="width:auto; margin:0;" id="btn-logout-admin">Esci</button>
     </div>
@@ -60,6 +62,14 @@
       <span class="label">Chiusure straordinarie</span>
       <span class="value" id="summary-dates">—</span>
     </div>
+    <div class="settings-summary-item">
+      <span class="label">Acconto prenotazione</span>
+      <span class="value" id="summary-deposit">—</span>
+    </div>
+    <div class="settings-summary-item">
+      <span class="label">Email — dati acconto/IBAN</span>
+      <span class="value" id="summary-email-deposit-info">—</span>
+    </div>
   </div>
 
   <div class="stats-grid">
@@ -81,6 +91,13 @@
     </div>
   </div>
 
+  <div class="row" style="margin-bottom:14px; align-items:flex-end;">
+    <div>
+      <label style="margin-top:0;">Cerca prenotazione</label>
+      <input type="text" id="table-search" placeholder="Cerca per nome, email o data (gg/mm/aaaa)…" />
+    </div>
+  </div>
+
   <table>
     <thead>
       <tr>
@@ -90,6 +107,7 @@
         <th>Data</th>
         <th>Ora</th>
         <th>Stato</th>
+        <th>Acconto</th>
         <th>Creata il</th>
         <th>Azioni</th>
       </tr>
@@ -116,6 +134,10 @@
     <label>Orario di confine tra pranzo e cena</label>
     <input type="time" id="set-shift-cutoff" />
     <div class="hint-text">Le prenotazioni prima di quest'ora contano come "pranzo", da quest'ora in poi come "cena".</div>
+
+    <label>Numero massimo di persone per singola prenotazione</label>
+    <input type="number" id="set-max-people" min="1" placeholder="es. 30" />
+    <div class="hint-text">Limite per una singola prenotazione (indipendente dalla capienza del turno). Per gruppi più numerosi il cliente dovrà contattare direttamente il locale.</div>
 
     <label>Giorno di chiusura settimanale fisso</label>
     <select id="set-weekday">
@@ -163,6 +185,91 @@
       <div class="hint-text">Guida passo-passo per ottenere questi valori: vedi il file WHATSAPP-SETUP.md incluso nel pacchetto del sito.</div>
     </div>
 
+    <label class="switch-row" style="margin-top:20px;">
+      <input type="checkbox" id="set-deposit-enabled" />
+      <span>Richiedi un acconto alla prenotazione (contanti o bonifico)</span>
+    </label>
+
+    <div id="deposit-fields" class="whatsapp-fields">
+      <label>Importo acconto per persona (€)</label>
+      <input type="number" id="set-deposit-amount" min="0" step="0.5" placeholder="es. 10" />
+      <div class="hint-text">L'importo totale richiesto al cliente sarà: importo per persona × numero di persone della prenotazione.</div>
+
+      <label>Metodi di pagamento accettati</label>
+      <label class="switch-row" style="margin-top:8px; font-size:13.5px;">
+        <input type="checkbox" id="set-deposit-method-contanti" />
+        <span>Contanti (in loco)</span>
+      </label>
+      <label class="switch-row" style="margin-top:8px; font-size:13.5px;">
+        <input type="checkbox" id="set-deposit-method-bonifico" />
+        <span>Bonifico bancario</span>
+      </label>
+
+      <label>IBAN</label>
+      <input type="text" id="set-deposit-iban" placeholder="IT00X0000000000000000000000" />
+
+      <label>Intestatario conto</label>
+      <input type="text" id="set-deposit-holder" placeholder="Es. Ristorante Da Mario Srl" />
+
+      <label>Nome banca (facoltativo)</label>
+      <input type="text" id="set-deposit-bank-name" placeholder="Es. Intesa Sanpaolo" />
+
+      <label>Istruzioni aggiuntive (facoltative, incluse nell'email al cliente)</label>
+      <textarea id="set-deposit-instructions" maxlength="500" placeholder="Es. Invia la ricevuta del bonifico rispondendo a questa email"></textarea>
+      <div class="hint-text">IBAN e istruzioni vengono mostrati nel modulo di prenotazione e inviati via email al cliente, subito dopo la conferma, se sceglie il bonifico.</div>
+    </div>
+
+    <label class="switch-row" style="margin-top:20px;">
+      <span style="font-weight:600;">✉ Email di conferma prenotazione</span>
+    </label>
+    <div class="hint-text">L'email di conferma viene sempre inviata al cliente subito dopo la prenotazione. Configura qui mittente, testo e se includere o meno la richiesta di acconto.</div>
+
+    <div id="email-fields" class="whatsapp-fields">
+      <label>Nome mittente visualizzato</label>
+      <input type="text" id="set-email-sender-name" placeholder="Es. Ristorante Da Mario" maxlength="80" />
+      <div class="hint-text">L'indirizzo email effettivo resta sempre quello dell'account Google collegato allo script; qui puoi solo personalizzare il nome mostrato al destinatario.</div>
+
+      <label>Email di risposta (Reply-To)</label>
+      <input type="email" id="set-email-reply-to" placeholder="Es. info@ristorantedamario.it" />
+      <div class="hint-text">Facoltativo: se il cliente risponde all'email, la risposta arriverà a questo indirizzo invece che all'account Google dello script.</div>
+
+      <label class="switch-row" style="margin-top:8px;">
+        <input type="checkbox" id="set-email-include-deposit-info" />
+        <span>Richiedi l'acconto e includi i dati IBAN nell'email di conferma</span>
+      </label>
+      <div class="hint-text">Se attivo (e l'acconto è configurato), l'email include importo, metodo di pagamento e, in caso di bonifico, i dati IBAN. Se disattivo, l'email è sempre inviata ma è una semplice conferma di prenotazione, senza alcuna richiesta di acconto né dati IBAN.</div>
+
+      <label>Testo email di conferma</label>
+      <textarea id="set-email-template" rows="10" placeholder="Lascia vuoto per usare il testo predefinito"></textarea>
+      <div class="hint-text">
+        Segnaposto disponibili (sostituiti automaticamente): <code>{nome}</code>, <code>{email}</code>,
+        <code>{nome_attivita}</code>, <code>{data}</code>, <code>{ora}</code>, <code>{persone}</code>,
+        <code>{metodo_pagamento}</code>, <code>{importo_acconto}</code>, <code>{iban}</code>,
+        <code>{intestatario}</code>, <code>{banca}</code>, <code>{istruzioni_acconto}</code> e
+        <code>{dati_pagamento}</code> (blocco completo già formattato con IBAN o promemoria contanti,
+        a seconda del metodo scelto dal cliente — consigliato includerlo così com'è nel testo).
+      </div>
+      <button type="button" class="secondary" id="btn-reset-email-template" style="width:auto; margin-top:10px; padding:8px 14px; font-size:13px;">Ripristina testo predefinito</button>
+
+      <label style="margin-top:18px;">Invia una email di prova con dati d'esempio</label>
+      <div class="row">
+        <div>
+          <input type="email" id="set-email-test-address" placeholder="Lascia vuoto per riceverla sull'account Google dello script" />
+        </div>
+        <div style="flex:0 0 auto;">
+          <button type="button" class="secondary" id="btn-send-test-email" style="width:auto; margin-top:0; padding:12px 16px;">Invia test</button>
+        </div>
+      </div>
+      <div class="hint-text">Genera e invia subito l'email di conferma con una prenotazione d'esempio, usando il mittente, il testo e il flag acconto/IBAN configurati qui sopra — utile per controllare il risultato prima che lo veda un cliente vero.</div>
+      <div class="msg" id="test-email-msg"></div>
+    </div>
+
+    <label class="switch-row" style="margin-top:20px;">
+      <input type="checkbox" id="set-reminder-enabled" />
+      <span>⏰ Invia un promemoria automatico via email il giorno prima della prenotazione</span>
+    </label>
+    <div class="hint-text">Richiede un piccolo passaggio di attivazione una tantum nell'editor Apps Script (crea il trigger giornaliero): vedi la sezione dedicata nella guida GUIDA-INSTALLAZIONE-E-USO.md. Questo interruttore da solo accende/spegne l'invio, ma il trigger va creato una volta sola perché parta davvero.</div>
+
     <button id="btn-save-settings">Salva impostazioni</button>
     <div class="msg" id="settings-msg"></div>
   </div>
@@ -203,6 +310,21 @@
       <option value="Confermata">Confermata</option>
       <option value="Annullata">Annullata</option>
     </select>
+
+    <div class="row">
+      <div>
+        <label>Metodo pagamento acconto (facoltativo)</label>
+        <select id="bk-payment-method">
+          <option value="">Nessuno</option>
+          <option value="contanti">Contanti</option>
+          <option value="bonifico">Bonifico</option>
+        </select>
+      </div>
+      <div>
+        <label>Importo acconto (€)</label>
+        <input type="number" id="bk-deposit-amount" min="0" step="0.5" placeholder="0" />
+      </div>
+    </div>
 
     <div class="availability-box" id="bk-availability"></div>
 
@@ -260,6 +382,39 @@
   </div>
 </div>
 
-<script src="js/admin.js?v=9"></script>
+<!-- MODALE: REPORT / STAMPA PDF / ESPORTA CSV PER PERIODO -->
+<div class="modal-overlay hidden" id="report-modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>📄 Report prenotazioni per periodo</h2>
+      <button class="modal-close" id="btn-close-report">✕</button>
+    </div>
+    <div class="hint-text" style="margin-top:0;">Scegli un intervallo di date per generare una stampa (PDF) o un file CSV con le prenotazioni di quel periodo.</div>
+
+    <div class="row">
+      <div>
+        <label>Dal</label>
+        <input type="date" id="report-date-from" />
+      </div>
+      <div>
+        <label>Al</label>
+        <input type="date" id="report-date-to" />
+      </div>
+    </div>
+
+    <label class="switch-row" style="margin-top:16px;">
+      <input type="checkbox" id="report-include-cancelled" />
+      <span>Includi anche le prenotazioni annullate</span>
+    </label>
+
+    <div class="hint-text" id="report-count-hint" style="margin-top:14px;">Scegli un intervallo di date.</div>
+
+    <button id="btn-report-print">🖨 Genera stampa / PDF</button>
+    <button class="secondary" id="btn-report-csv">⬇ Esporta CSV</button>
+    <div class="msg" id="report-msg"></div>
+  </div>
+</div>
+
+<script src="js/admin.js?v=15"></script>
 </body>
 </html>

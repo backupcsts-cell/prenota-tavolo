@@ -486,6 +486,56 @@ tbody tr.new-row { animation: highlight 1.8s ease; }
   background: rgba(var(--gold-rgb), 0.04);
 }
 
+/* ===== ACCONTO PRENOTAZIONE (contanti / bonifico) ===== */
+.deposit-box {
+  margin-top: 20px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(var(--gold-rgb), 0.04);
+}
+.deposit-box.hidden { display: none; }
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.radio-option:hover { border-color: var(--gold); }
+.radio-option.hidden { display: none; }
+.radio-option input[type="radio"] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--gold);
+  cursor: pointer;
+  margin: 0;
+}
+
+.deposit-info {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(var(--gold-rgb), 0.08);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.deposit-info:empty { display: none; }
+
 .availability-box {
   margin-top: 16px;
   padding: 12px 14px;
@@ -560,6 +610,13 @@ tbody tr.new-row { animation: highlight 1.8s ease; }
   font-size: 11.5px;
   color: var(--text-muted);
   margin-top: 6px;
+}
+.hint-text code {
+  background: rgba(var(--gold-rgb), 0.12);
+  color: var(--gold-soft);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 11px;
 }
 
 @media (max-width: 700px) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prenota-tavolo-v3';
+const CACHE_NAME = 'prenota-tavolo-v4';
 const ASSETS_TO_CACHE = [
   './index.html',
   './css/style.css',
